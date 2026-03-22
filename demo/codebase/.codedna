@@ -1,0 +1,18 @@
+# .codedna — Django-like e-commerce project (5 packages, realistic dependency chains)
+project: django-shop
+description: "E-commerce platform with payments, orders, notifications"
+packages:
+  views/:
+    purpose: "HTTP request handlers and URL routing"
+    depends_on: [forms/]
+  forms/:
+    purpose: "Input validation and data transformation"
+    depends_on: [models/]
+  models/:
+    purpose: "ORM models and database access layer"
+    depends_on: [db/]
+  db/:
+    purpose: "Database connection pooling and raw SQL"
+  notifications/:
+    purpose: "Email and webhook dispatch"
+    depends_on: [models/]

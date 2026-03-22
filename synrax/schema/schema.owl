@@ -1,0 +1,297 @@
+@prefix arch: <http://archgraph.example.org/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================================
+# ArchGraph Ontology — schema.owl
+# Version 0.1 (from ArchGraph Formal Specification)
+# =============================================================================
+
+arch: a owl:Ontology ;
+    rdfs:label "ArchGraph Ontology" ;
+    rdfs:comment "Formal knowledge graph schema for CodeDNA-annotated codebases" ;
+    owl:versionInfo "0.1" .
+
+# =============================================================================
+# Classes — Base software entities
+# =============================================================================
+
+arch:Module a owl:Class ;
+    rdfs:label "A source file or module" ;
+    rdfs:comment "Represents a single source file (.py, .js, etc.)" .
+
+arch:Package a owl:Class ;
+    rdfs:label "A package or directory" ;
+    rdfs:comment "Container for modules, represents a logical partition" .
+
+arch:Function a owl:Class ;
+    rdfs:label "A function or method" ;
+    rdfs:comment "Callable unit within a module" .
+
+arch:Export a owl:Class ;
+    rdfs:label "Exported symbol" ;
+    rdfs:comment "Public API symbol from a module" .
+
+# Classes — Architecture and rules
+
+arch:Rule a owl:Class ;
+    rdfs:label "Architectural rule or constraint" ;
+    rdfs:comment "Domain knowledge extracted from rules: field" .
+
+arch:Constraint a owl:Class ;
+    rdfs:label "SHACL-formalized constraint" ;
+    rdfs:comment "Executable validation shape derived from rules:" .
+
+arch:DependencyChain a owl:Class ;
+    rdfs:label "Call chain or dependency path" ;
+    rdfs:comment "Transitive path computed by OWL reasoner" .
+
+# Classes — Agent and provenance
+
+arch:AgentSession a owl:Class ;
+    rdfs:label "An AI agent work session" ;
+    rdfs:comment "Represents one agent's interaction with the codebase" .
+
+arch:Agent a owl:Class ;
+    rdfs:label "An AI model instance" ;
+    rdfs:comment "E.g., claude-sonnet-4-6, gemini-2.5-pro" .
+
+arch:Violation a owl:Class ;
+    rdfs:label "SHACL constraint violation" ;
+    rdfs:comment "Result of failing a validation shape" .
+
+# Classes — Hardware/Physical (SIGMANEX-specific)
+
+arch:HardwareModule a owl:Class ;
+    rdfs:subClassOf arch:Module ;
+    rdfs:label "Hardware driver or firmware" ;
+    rdfs:comment "ESP32, sensor drivers, radio stack" .
+
+arch:PhysicalConstraint a owl:Class ;
+    rdfs:subClassOf arch:Rule ;
+    rdfs:label "Physical law constraint" ;
+    rdfs:comment "E.g., LoRa duty cycle 1%, battery capacity" .
+
+# =============================================================================
+# Disjoint classes
+# =============================================================================
+
+arch:Module owl:disjointWith arch:Package .
+arch:Module owl:disjointWith arch:Agent .
+
+# =============================================================================
+# Object Properties — Dependency relationships (core of ArchGraph)
+# =============================================================================
+
+arch:dependsOn a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:Module ;
+    rdfs:label "depends on" ;
+    rdfs:comment "Module A depends on Module B if it imports/uses its exports. Transitive." .
+
+arch:usedBy a owl:ObjectProperty ;
+    owl:inverseOf arch:dependsOn ;
+    rdfs:label "used by" ;
+    rdfs:comment "Inverse of dependsOn; automatically inferred" .
+
+arch:cascades a owl:ObjectProperty ;
+    rdfs:subPropertyOf arch:usedBy ;
+    rdfs:label "cascades to (mandatory update)" ;
+    rdfs:comment "Marked with [cascade] tag; MUST be updated on changes" .
+
+# Object Properties — Export/API relationships
+
+arch:exports a owl:ObjectProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:Export ;
+    rdfs:label "exports" ;
+    rdfs:comment "Module declares this as public API" .
+
+arch:calls a owl:ObjectProperty ;
+    rdfs:domain arch:Function ;
+    rdfs:range arch:Function ;
+    rdfs:label "calls (direct)" ;
+    rdfs:comment "Function F1 directly invokes function F2" .
+
+arch:callsTransitive a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:subPropertyOf arch:calls ;
+    rdfs:label "calls (transitive)" ;
+    rdfs:comment "Call chain; computed by reasoner" .
+
+# Object Properties — Architecture and rule application
+
+arch:hasRule a owl:ObjectProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:Rule ;
+    rdfs:label "has architectural rule" ;
+    rdfs:comment "Module is subject to this constraint" .
+
+arch:appliesTo a owl:ObjectProperty ;
+    rdfs:domain arch:Rule ;
+    rdfs:range arch:Module ;
+    owl:inverseOf arch:hasRule ;
+    rdfs:label "applies to" ;
+    rdfs:comment "Inverse of hasRule" .
+
+arch:validatedBy a owl:ObjectProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:Constraint ;
+    rdfs:label "validated by shape" ;
+    rdfs:comment "This module is checked against this SHACL shape" .
+
+# Object Properties — Agent provenance
+
+arch:modifiedBy a owl:ObjectProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:AgentSession ;
+    rdfs:label "modified by" ;
+    rdfs:comment "Record of which agent sessions touched this module" .
+
+arch:belongs a owl:ObjectProperty ;
+    rdfs:domain arch:AgentSession ;
+    rdfs:range arch:Agent ;
+    rdfs:label "belongs to agent" ;
+    rdfs:comment "Which AI model ran this session" .
+
+arch:visited a owl:ObjectProperty ;
+    rdfs:domain arch:AgentSession ;
+    rdfs:range arch:Module ;
+    rdfs:label "visited during session" ;
+    rdfs:comment "Files read (not necessarily modified) during session" .
+
+arch:discoveredViolation a owl:ObjectProperty ;
+    rdfs:domain arch:AgentSession ;
+    rdfs:range arch:Violation ;
+    rdfs:label "discovered violation" ;
+    rdfs:comment "SHACL violation found during this session" .
+
+# Object Properties — Function to module
+
+arch:definedIn a owl:ObjectProperty, owl:FunctionalProperty ;
+    rdfs:domain arch:Function ;
+    rdfs:range arch:Module ;
+    rdfs:label "defined in module" ;
+    rdfs:comment "Each function is defined in exactly one module" .
+
+# Object Properties — Physical constraints
+
+arch:constrainedBy a owl:ObjectProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:PhysicalConstraint ;
+    rdfs:label "constrained by" ;
+    rdfs:comment "Module must respect this physical law" .
+
+arch:implementsProtocol a owl:ObjectProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range arch:Module ;
+    rdfs:label "implements protocol" ;
+    rdfs:comment "Module A implements the protocol defined in Module B" .
+
+# =============================================================================
+# Data Properties — Identifiers and metadata
+# =============================================================================
+
+arch:moduleName a owl:DatatypeProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range xsd:string ;
+    rdfs:label "module name" ;
+    rdfs:comment "File path, e.g., billing/invoice_service.py" .
+
+arch:packageName a owl:DatatypeProperty ;
+    rdfs:domain arch:Package ;
+    rdfs:range xsd:string ;
+    rdfs:label "package name" ;
+    rdfs:comment "Directory path, e.g., billing/" .
+
+arch:purpose a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "purpose" ;
+    rdfs:comment "From CodeDNA first-line docstring or .codedna purposes:" .
+
+arch:exportName a owl:DatatypeProperty ;
+    rdfs:domain arch:Export ;
+    rdfs:range xsd:string ;
+    rdfs:label "export name" ;
+    rdfs:comment "Symbol name, e.g., build_invoice_total" .
+
+arch:signature a owl:DatatypeProperty ;
+    rdfs:domain arch:Export ;
+    rdfs:range xsd:string ;
+    rdfs:label "function signature" ;
+    rdfs:comment "Type info, e.g., (order_id: str) -> int" .
+
+# Data Properties — Rule/constraint content
+
+arch:content a owl:DatatypeProperty ;
+    rdfs:domain arch:Rule ;
+    rdfs:range xsd:string ;
+    rdfs:label "rule text" ;
+    rdfs:comment "Raw text from rules: field in CodeDNA" .
+
+arch:severity a owl:DatatypeProperty ;
+    rdfs:domain arch:Rule ;
+    rdfs:range xsd:string ;
+    rdfs:label "severity level" ;
+    rdfs:comment "CRITICAL | HIGH | MEDIUM | LOW" .
+
+# Data Properties — Agent and provenance metadata
+
+arch:agentModel a owl:DatatypeProperty ;
+    rdfs:domain arch:Agent ;
+    rdfs:range xsd:string ;
+    rdfs:label "model identifier" ;
+    rdfs:comment "E.g., claude-sonnet-4-6, gemini-2.5-pro" .
+
+arch:agentProvider a owl:DatatypeProperty ;
+    rdfs:domain arch:Agent ;
+    rdfs:range xsd:string ;
+    rdfs:label "model provider" ;
+    rdfs:comment "anthropic, google, openai, deepseek" .
+
+arch:sessionDate a owl:DatatypeProperty ;
+    rdfs:domain arch:AgentSession ;
+    rdfs:range xsd:date ;
+    rdfs:label "session date" ;
+    rdfs:comment "ISO date YYYY-MM-DD" .
+
+arch:sessionId a owl:DatatypeProperty ;
+    rdfs:domain arch:AgentSession ;
+    rdfs:range xsd:string ;
+    rdfs:label "session ID" ;
+    rdfs:comment "Unique identifier from git AI-Session trailer" .
+
+arch:narrative a owl:DatatypeProperty ;
+    rdfs:domain arch:AgentSession ;
+    rdfs:range xsd:string ;
+    rdfs:label "narrative" ;
+    rdfs:comment "What the agent did and what it noticed (from agent: field)" .
+
+# Data Properties — Physical constraint parameters
+
+arch:value a owl:DatatypeProperty ;
+    rdfs:domain arch:PhysicalConstraint ;
+    rdfs:range xsd:string ;
+    rdfs:label "constraint value" ;
+    rdfs:comment "E.g., 0.01 for 1% duty cycle" .
+
+arch:unit a owl:DatatypeProperty ;
+    rdfs:domain arch:PhysicalConstraint ;
+    rdfs:range xsd:string ;
+    rdfs:label "unit" ;
+    rdfs:comment "percent, ms, mA, bytes, etc." .
+
+# Data Properties — Violations
+
+arch:violationMessage a owl:DatatypeProperty ;
+    rdfs:domain arch:Violation ;
+    rdfs:range xsd:string ;
+    rdfs:label "violation message" ;
+    rdfs:comment "Human-readable description from SHACL" .
+
+arch:violationTimestamp a owl:DatatypeProperty ;
+    rdfs:domain arch:Violation ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "discovered at" ;
+    rdfs:comment "When this violation was first detected" .

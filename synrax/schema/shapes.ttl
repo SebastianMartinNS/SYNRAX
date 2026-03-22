@@ -1,0 +1,148 @@
+@prefix arch: <http://archgraph.example.org/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# =============================================================================
+# ArchGraph SHACL Shapes — shapes.ttl
+# Version 0.1 (from ArchGraph Formal Specification)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Shape 1: Rule Presence (Meta-validation)
+# Every module SHOULD have at least one architectural rule.
+# -----------------------------------------------------------------------------
+
+arch:RulePresenceShape a sh:NodeShape ;
+    sh:targetClass arch:Module ;
+    sh:property [
+        sh:path arch:hasRule ;
+        sh:minCount 1 ;
+        sh:message "Module {$this} has no explicit rules: field — add architectural context" ;
+        sh:severity sh:Warning ;
+    ] ;
+    sh:deactivated false .
+
+# -----------------------------------------------------------------------------
+# Shape 2: Module Completeness
+# Every module MUST have a name and purpose.
+# -----------------------------------------------------------------------------
+
+arch:ModuleCompletenessShape a sh:NodeShape ;
+    sh:targetClass arch:Module ;
+    sh:property [
+        sh:path arch:moduleName ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Module {$this} is missing a moduleName" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        sh:path arch:purpose ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Module {$this} is missing a purpose description" ;
+        sh:severity sh:Violation ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Shape 3: Export Completeness
+# Every export MUST have a name.
+# -----------------------------------------------------------------------------
+
+arch:ExportCompletenessShape a sh:NodeShape ;
+    sh:targetClass arch:Export ;
+    sh:property [
+        sh:path arch:exportName ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Export {$this} is missing an exportName" ;
+        sh:severity sh:Violation ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Shape 4: AgentSession Completeness
+# Every session MUST have a date, agent reference, and narrative.
+# -----------------------------------------------------------------------------
+
+arch:AgentSessionShape a sh:NodeShape ;
+    sh:targetClass arch:AgentSession ;
+    sh:property [
+        sh:path arch:sessionDate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:date ;
+        sh:message "AgentSession {$this} is missing sessionDate" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        sh:path arch:belongs ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class arch:Agent ;
+        sh:message "AgentSession {$this} must belong to exactly one Agent" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        sh:path arch:narrative ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "AgentSession {$this} is missing a narrative" ;
+        sh:severity sh:Warning ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Shape 5: Cascade Completeness
+# Cascade target count should be reasonable (< 10).
+# -----------------------------------------------------------------------------
+
+arch:CascadeCompletenessShape a sh:NodeShape ;
+    sh:targetClass arch:Module ;
+    sh:property [
+        sh:path arch:cascades ;
+        sh:maxCount 10 ;
+        sh:message "Module {$this} has >10 cascade targets — review dependency structure" ;
+        sh:severity sh:Warning ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Shape 6: Package Completeness
+# Every package MUST have a name and purpose.
+# -----------------------------------------------------------------------------
+
+arch:PackageCompletenessShape a sh:NodeShape ;
+    sh:targetClass arch:Package ;
+    sh:property [
+        sh:path arch:packageName ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Package {$this} is missing a packageName" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:property [
+        sh:path arch:purpose ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Package {$this} is missing a purpose description" ;
+        sh:severity sh:Violation ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Shape 7: LoRa Duty Cycle (SIGMANEX-specific, deactivated by default)
+# Hardware modules using LoRa MUST declare duty cycle constraint.
+# -----------------------------------------------------------------------------
+
+arch:LoRaDutyCycleShape a sh:NodeShape ;
+    sh:targetClass arch:HardwareModule ;
+    sh:property [
+        sh:path arch:constrainedBy ;
+        sh:minCount 1 ;
+        sh:message "Hardware module {$this} must declare physical constraints" ;
+        sh:severity sh:Violation ;
+    ] ;
+    sh:deactivated true .

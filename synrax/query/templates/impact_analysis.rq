@@ -1,0 +1,9 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Impact Analysis: What modules are affected if I modify {{module}}?
+SELECT DISTINCT ?affected ?name WHERE {
+  ?affected arch:dependsOn arch:{{module}} .
+  ?affected arch:moduleName ?name .
+}
+ORDER BY ?name
+LIMIT 50

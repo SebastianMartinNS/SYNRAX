@@ -1,0 +1,11 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Cascade Violation Detection: modules with [cascade] targets not visited in this session
+SELECT ?module ?cascade_target ?session WHERE {
+  ?session arch:visited ?module ;
+           a arch:AgentSession .
+  ?module arch:cascades ?cascade_target .
+  FILTER NOT EXISTS {
+    ?session arch:visited ?cascade_target .
+  }
+}

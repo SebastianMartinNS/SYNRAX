@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+.env
+*.ttl
+!synrax/schema/schema.owl
+!synrax/schema/shapes.ttl
+_reference/
+.pytest_cache/
+.ruff_cache/

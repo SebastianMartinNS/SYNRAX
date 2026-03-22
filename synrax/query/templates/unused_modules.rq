@@ -1,0 +1,12 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Unused Modules: find modules that nothing depends on (orphans)
+SELECT ?orphan ?name ?package WHERE {
+  ?orphan a arch:Module ;
+          arch:moduleName ?name .
+  BIND(STRBEFORE(STR(?name), "/") AS ?package)
+  FILTER NOT EXISTS {
+    ?any arch:dependsOn ?orphan .
+  }
+}
+ORDER BY ?package

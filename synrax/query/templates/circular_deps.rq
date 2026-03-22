@@ -1,0 +1,9 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Circular Dependency Detection: find cycles in the dependency graph
+SELECT ?cycle WHERE {
+  ?a arch:dependsOn+ ?b .
+  ?b arch:dependsOn+ ?a .
+  FILTER (?a != ?b)
+  BIND(CONCAT(STR(?a), " <-> ", STR(?b)) AS ?cycle)
+}

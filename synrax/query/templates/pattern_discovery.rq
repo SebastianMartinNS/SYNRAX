@@ -1,0 +1,15 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Cross-Cutting Pattern Discovery: modules with "soft-delete" but no "deleted_at filter" rule
+SELECT ?module ?missing_filter WHERE {
+  ?module arch:hasRule ?soft_delete_rule ;
+          a arch:Module .
+  ?soft_delete_rule arch:content ?content .
+  FILTER(CONTAINS(LCASE(?content), "soft-delete") || CONTAINS(LCASE(?content), "soft delete"))
+  FILTER NOT EXISTS {
+    ?module arch:hasRule ?filter_rule .
+    ?filter_rule arch:content ?filter_content .
+    FILTER(CONTAINS(LCASE(?filter_content), "deleted_at"))
+  }
+  BIND(CONCAT(STR(?module), " [MISSING: deleted_at filter]") AS ?missing_filter)
+}

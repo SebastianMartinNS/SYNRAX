@@ -1,0 +1,11 @@
+# .codedna — test fixture
+project: test-project
+packages:
+  api/:
+    purpose: "HTTP API endpoints"
+  billing/:
+    purpose: "Invoice generation and payment processing"
+    depends_on: [api/]
+  reports/:
+    purpose: "Revenue and analytics reports"
+    depends_on: [billing/, api/]
