@@ -1,0 +1,9 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Dependencies Of: What does module {{module}} depend on?
+SELECT DISTINCT ?dependency ?name WHERE {
+  arch:{{module}} arch:dependsOn ?dependency .
+  ?dependency arch:moduleName ?name .
+}
+ORDER BY ?name
+LIMIT 50

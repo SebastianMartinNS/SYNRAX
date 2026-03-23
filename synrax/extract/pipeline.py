@@ -45,7 +45,7 @@ def extract_codebase(root: Path) -> Graph:
             continue
 
         try:
-            module_graph = parse_module(py_file, project="")
+            module_graph = parse_module(py_file, project="", root=root)
             for triple in module_graph:
                 g.add(triple)
         except Exception:

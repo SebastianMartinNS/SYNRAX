@@ -1,16 +1,18 @@
 """synrax/schema/validator.py — SHACL validation of ArchGraph RDF graphs.
 
-exports: validate(graph) -> dict
+exports: validate(graph, shapes_extensions) -> dict
 used_by: synrax/cli/main.py → validate command | synrax/schema/__init__.py
 rules:   Returns JSON report with conforms, violations, warnings, statistics.
-         Uses pyshacl against bundled shapes.ttl.
+         Uses pyshacl against bundled shapes.ttl + optional extension shapes.
 agent:   claude-opus-4 | anthropic | 2026-03-22 | Initial SHACL validator.
+         claude-opus-4 | anthropic | 2026-03-22 | Dynamic shapes extension support.
 """
 
 from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from rdflib import Graph
 
@@ -20,16 +22,17 @@ from synrax.namespaces import ARCH, SH
 from synrax.schema.loader import load_shapes
 
 
-def validate(graph: Graph) -> dict:
+def validate(graph: Graph, shapes_extensions: list[Path] | None = None) -> dict:
     """Validate an RDF graph against ArchGraph SHACL shapes.
 
     Args:
         graph: RDF graph to validate.
+        shapes_extensions: Additional SHACL TTL files to merge.
 
     Returns:
         Validation report dict with keys: conforms, violations, warnings, statistics.
     """
-    shapes_graph = load_shapes()
+    shapes_graph = load_shapes(extra=shapes_extensions)
 
     start = time.monotonic()
     conforms, results_graph, results_text = shacl_validate(

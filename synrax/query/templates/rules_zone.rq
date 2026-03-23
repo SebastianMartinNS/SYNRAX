@@ -1,0 +1,21 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Rules Zone: All rules for module {{module}} and modules in its transitive impact zone
+SELECT DISTINCT ?module_name ?rule_text WHERE {
+  {
+    # Rules directly on the target module
+    arch:{{module}} arch:hasRule ?rule .
+    arch:{{module}} arch:moduleName ?module_name .
+    ?rule arch:content ?rule_text .
+  }
+  UNION
+  {
+    # Rules on modules that depend on the target (impact zone)
+    ?affected arch:dependsOn arch:{{module}} .
+    ?affected arch:hasRule ?rule .
+    ?affected arch:moduleName ?module_name .
+    ?rule arch:content ?rule_text .
+  }
+}
+ORDER BY ?module_name
+LIMIT 100

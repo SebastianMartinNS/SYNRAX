@@ -6,6 +6,9 @@ Synrax extracts CodeDNA annotations (YAML manifests + Python docstrings) into RD
 validates them with SHACL shapes, infers transitive dependencies via OWL-RL reasoning,
 and exposes SPARQL queries for architectural impact analysis.
 
+It also provides an **incremental runtime** with a JSON-RPC server (`codedna-export serve`)
+that lets AI agents query the knowledge graph live during coding sessions.
+
 ## Problem
 
 CodeDNA gives you structured annotations in source code. But annotations alone can't answer:
@@ -13,9 +16,11 @@ CodeDNA gives you structured annotations in source code. But annotations alone c
 - *"If I modify `db/connection.py`, what breaks?"* — requires transitive dependency tracking
 - *"Are there orphan modules nobody depends on?"* — requires global graph analysis
 - *"Did the AI agent miss a `[cascade]` target?"* — requires formal enforcement
+- *"What does this module actually import?"* — requires AST-level analysis, not just annotations
 
 Synrax turns flat annotations into a **queryable knowledge graph** that answers all of
-these with a single SPARQL query each.
+these with a single SPARQL query each. Ground-truth `import` analysis supplements
+annotation-declared dependencies, so the graph stays accurate even when annotations lag behind code.
 
 ## Benchmark Results
 
@@ -40,9 +45,11 @@ Full report: [docs/BENCHMARK_REPORT.md](docs/BENCHMARK_REPORT.md)
 ```
 Source (.codedna manifest + Python docstrings)
   → Extract (Python AST + YAML parser → RDF/Turtle)
-    → Reason (OWL-RL: transitive closure, inverse properties, subproperty propagation)
-      → Validate (SHACL shapes → violation/warning report)
-        → Query (SPARQL templates → JSON results)
+    → Import Analysis (AST-based ground-truth dependency edges)
+      → Reason (OWL-RL: transitive closure, inverse properties, subproperty propagation)
+        → Validate (SHACL shapes → violation/warning report)
+          → Query (SPARQL templates → JSON results)
+            → Runtime (SessionGraph + JSON-RPC server for live agent queries)
 ```
 
 ## Install
@@ -59,6 +66,9 @@ Requires **Python 3.11+**.
 # Extract a codebase → RDF graph (with OWL reasoning)
 codedna-export export demo/codebase -o graph.ttl
 
+# Extract with project-specific schema extensions
+codedna-export export demo/codebase -o graph.ttl --schema hw.owl --shapes hw_shapes.ttl
+
 # Validate the graph against SHACL shapes
 codedna-export validate graph.ttl
 
@@ -73,6 +83,9 @@ codedna-export query circular_deps graph.ttl
 
 # Detect missed [cascade] targets
 codedna-export query cascade_violations graph.ttl
+
+# Start the runtime JSON-RPC server for live agent queries
+codedna-export serve demo/codebase --pre-ingest
 ```
 
 ### CLI Exit Codes
@@ -90,24 +103,30 @@ synrax/
 ├── extract/              # CodeDNA annotation parser
 │   ├── manifest.py       # .codedna YAML manifest → RDF
 │   ├── module_parser.py  # Python docstring (Level 1 + 2) → RDF
+│   ├── import_analyzer.py # AST-based import analysis → ground-truth dependency edges
 │   └── pipeline.py       # Codebase walker + graph merger
 ├── schema/               # OWL ontology + SHACL validation
 │   ├── schema.owl        # ArchGraph OWL ontology (7 classes, transitive/inverse properties)
 │   ├── shapes.ttl        # 6 SHACL shapes (completeness, consistency, warnings)
 │   ├── reasoner.py       # OWL-RL entailment via owlrl
 │   ├── validator.py      # SHACL validation via pyshacl → JSON report
-│   └── loader.py         # Schema/shape file loader
+│   └── loader.py         # Schema/shape file loader (+ dynamic extension discovery)
 ├── query/                # SPARQL query engine
 │   ├── engine.py         # Template loader + parameter substitution + execution
 │   ├── templates_loader.py
-│   └── templates/        # 5 .rq files
+│   └── templates/        # 7 .rq files
 │       ├── impact_analysis.rq
 │       ├── unused_modules.rq
 │       ├── circular_deps.rq
 │       ├── cascade_violations.rq
-│       └── pattern_discovery.rq
+│       ├── pattern_discovery.rq
+│       ├── deps_of.rq          # Dependencies of a module
+│       └── rules_zone.rq       # Rules for a module and its impact zone
+├── runtime/              # Incremental runtime for live agent sessions
+│   ├── session_graph.py  # SessionGraph: incremental graph + lazy OWL-RL reasoning
+│   └── tools.py          # 4 agent-callable tool functions
 ├── cli/                  # Click CLI (codedna-export)
-│   └── main.py           # export, validate, query commands
+│   └── main.py           # export, validate, query, serve commands
 └── namespaces.py         # Central RDF namespace definitions
 ```
 
@@ -131,6 +150,9 @@ Key properties:
 - `arch:usedBy` — **inverse** of `dependsOn` (`owl:inverseOf`): auto-generated reverse perspective
 - `arch:cascades` — **subproperty** of `usedBy` (`rdfs:subPropertyOf`): enforces `[cascade]` semantics
 
+The base schema is generic. Project-specific classes (e.g., `HardwareModule`, `PhysicalConstraint`)
+are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-extensions) below.
+
 ## SHACL Shapes
 
 6 validation shapes in `synrax/schema/shapes.ttl`:
@@ -149,6 +171,8 @@ Key properties:
 | Template | Parameters | Purpose |
 |---|---|---|
 | `impact_analysis` | `module` | All modules transitively affected by changes to `module` |
+| `deps_of` | `module` | All modules that `module` depends on |
+| `rules_zone` | `module` | Architectural rules for a module and its transitive impact zone |
 | `unused_modules` | — | Orphan modules nothing depends on |
 | `circular_deps` | — | Circular dependency detection via property paths |
 | `cascade_violations` | — | Agent sessions that edited a module but skipped its `[cascade]` targets |
@@ -157,26 +181,30 @@ Key properties:
 ## Testing
 
 ```bash
-pytest                    # 91 tests, ~4s
+pytest                    # 141 tests, ~8s
 pytest -x --tb=short      # fail-fast
 python benchmarks.py      # reproduce all benchmark numbers
 ```
 
-91 tests across 13 files:
+141 tests across 17 files:
 
 | File | Tests | Scope |
 |---|--:|---|
 | `test_cli.py` | 10 | CLI commands, exit codes, file I/O |
+| `test_cli_serve.py` | 8 | JSON-RPC serve command, ingest, query methods |
 | `test_codedna_vs_synrax.py` | 10 | Quantitative CodeDNA-vs-Synrax comparison |
 | `test_engine.py` | 5 | SPARQL execution, parameter substitution |
+| `test_import_analyzer.py` | 17 | AST import resolution, graph building, edge cases |
 | `test_manifest.py` | 5 | `.codedna` YAML parsing |
 | `test_module_parser.py` | 8 | Docstring extraction (Level 1 + 2) |
 | `test_pipeline.py` | 1 | Basic integration |
 | `test_pipeline_advanced.py` | 7 | Edge cases: no manifest, syntax errors, skip rules |
 | `test_query.py` | 3 | Template loading |
 | `test_reasoner_advanced.py` | 6 | OWL-RL: transitivity, inverse, cascade→usedBy |
+| `test_runtime_tools.py` | 11 | Agent tool functions: impact, deps, rules, status |
 | `test_schema.py` | 5 | Schema/shape loading, basic reasoning |
-| `test_sparql_templates.py` | 10 | All 5 SPARQL templates functional tests |
+| `test_session_graph.py` | 14 | Incremental ingestion, lazy reasoning, SPARQL queries |
+| `test_sparql_templates.py` | 10 | All 7 SPARQL templates functional tests |
 | `test_validator.py` | 10 | SHACL: conforms/violations/warnings/statistics |
 | `test_value_add.py` | 11 | E2E pipeline + paper-driven value-add |
 
@@ -188,7 +216,63 @@ python benchmarks.py      # reproduce all benchmark numbers
 | OWL reasoning | owlrl ≥6.0 | OWL-RL entailment (pure Python) |
 | SHACL validation | pyshacl ≥0.25 | Shape validation + reports |
 | CLI | Click ≥8.1 | `codedna-export` entry point |
-| Testing | pytest ≥8.0 | 91 tests |
+| Testing | pytest ≥8.0 | 141 tests |
+| YAML parsing | PyYAML ≥6.0 | .codedna manifest + extension discovery |
+
+## Schema Extensions
+
+The base ontology (`schema.owl`) and shapes (`shapes.ttl`) are generic.
+Project-specific classes and constraints are loaded dynamically via:
+
+1. **`.codedna` manifest** — `extensions` field auto-discovers extra files:
+   ```yaml
+   project: my-iot-device
+   extensions:
+     schema: [schema_hw.owl, schema_radio.owl]
+     shapes: [shapes_hw.ttl]
+   ```
+2. **CLI flags** — `--schema` and `--shapes` on `export` / `validate` commands.
+
+Both sources are merged at load time. This keeps the core schema clean while
+allowing any project to define domain-specific OWL classes and SHACL shapes.
+
+## Runtime (Agent Integration)
+
+Synrax provides an **incremental runtime** for live AI coding sessions:
+
+```bash
+# Start the JSON-RPC server (stdin/stdout)
+codedna-export serve path/to/codebase --pre-ingest
+```
+
+**JSON-RPC methods:**
+
+| Method | Params | Description |
+|---|---|---|
+| `synrax.ingest` | `path` | Parse a file's annotations + imports, add to graph |
+| `synrax.query_impact` | `module` | Transitively affected files if module changes |
+| `synrax.query_deps` | `module` | All dependencies of a module |
+| `synrax.query_rules` | `module` | Architectural rules for module and its impact zone |
+| `synrax.status` | — | Graph statistics: triples, files, orphans, cycles |
+
+The runtime uses **lazy reasoning** — OWL-RL is only re-applied when the graph
+has changed and a query is executed. This keeps ingestion fast (< 10ms per file)
+while queries always see the fully-reasoned graph.
+
+### Programmatic Usage
+
+```python
+from synrax.runtime.session_graph import SessionGraph
+from synrax.runtime.tools import make_synrax_tools
+
+session = SessionGraph(Path("my_project"))
+session.ingest_file("db/connection.py")
+session.ingest_file("models/order.py")
+
+tools = make_synrax_tools(session)
+print(tools["query_impact"]("db/connection.py"))
+print(tools["query_graph_status"]())
+```
 
 ## Upstream
 

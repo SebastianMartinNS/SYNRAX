@@ -62,18 +62,6 @@ arch:Violation a owl:Class ;
     rdfs:label "SHACL constraint violation" ;
     rdfs:comment "Result of failing a validation shape" .
 
-# Classes — Hardware/Physical (SIGMANEX-specific)
-
-arch:HardwareModule a owl:Class ;
-    rdfs:subClassOf arch:Module ;
-    rdfs:label "Hardware driver or firmware" ;
-    rdfs:comment "ESP32, sensor drivers, radio stack" .
-
-arch:PhysicalConstraint a owl:Class ;
-    rdfs:subClassOf arch:Rule ;
-    rdfs:label "Physical law constraint" ;
-    rdfs:comment "E.g., LoRa duty cycle 1%, battery capacity" .
-
 # =============================================================================
 # Disjoint classes
 # =============================================================================
@@ -175,20 +163,6 @@ arch:definedIn a owl:ObjectProperty, owl:FunctionalProperty ;
     rdfs:label "defined in module" ;
     rdfs:comment "Each function is defined in exactly one module" .
 
-# Object Properties — Physical constraints
-
-arch:constrainedBy a owl:ObjectProperty ;
-    rdfs:domain arch:Module ;
-    rdfs:range arch:PhysicalConstraint ;
-    rdfs:label "constrained by" ;
-    rdfs:comment "Module must respect this physical law" .
-
-arch:implementsProtocol a owl:ObjectProperty ;
-    rdfs:domain arch:Module ;
-    rdfs:range arch:Module ;
-    rdfs:label "implements protocol" ;
-    rdfs:comment "Module A implements the protocol defined in Module B" .
-
 # =============================================================================
 # Data Properties — Identifiers and metadata
 # =============================================================================
@@ -267,20 +241,6 @@ arch:narrative a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:label "narrative" ;
     rdfs:comment "What the agent did and what it noticed (from agent: field)" .
-
-# Data Properties — Physical constraint parameters
-
-arch:value a owl:DatatypeProperty ;
-    rdfs:domain arch:PhysicalConstraint ;
-    rdfs:range xsd:string ;
-    rdfs:label "constraint value" ;
-    rdfs:comment "E.g., 0.01 for 1% duty cycle" .
-
-arch:unit a owl:DatatypeProperty ;
-    rdfs:domain arch:PhysicalConstraint ;
-    rdfs:range xsd:string ;
-    rdfs:label "unit" ;
-    rdfs:comment "percent, ms, mA, bytes, etc." .
 
 # Data Properties — Violations
 

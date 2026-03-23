@@ -11,6 +11,7 @@ agent:   claude-opus-4 | anthropic | 2026-03-22 | Initial module parser with Lev
 from __future__ import annotations
 
 import ast
+import logging
 import re
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from rdflib import Graph, Literal
 from rdflib.namespace import XSD
 
 from synrax.namespaces import ARCH, RDF, RDFS, bind_namespaces
+
+log = logging.getLogger(__name__)
 
 
 def _make_module_uri(module_path: str) -> str:
@@ -49,38 +52,56 @@ def _parse_exports(exports_str: str) -> list[dict[str, str]]:
     """Parse 'exports:' field into list of {name, signature}."""
     results = []
     for part in exports_str.split("|"):
-        part = part.strip()
-        # Match: func_name(args) -> return_type  or  func_name() → type
-        m = re.match(r"(\w+)\(([^)]*)\)\s*(?:->|→)\s*(.+)", part)
-        if m:
-            results.append({
-                "name": m.group(1),
-                "signature": f"({m.group(2)}) -> {m.group(3).strip()}",
-            })
-        elif part:
-            # Plain export name
-            results.append({"name": part.split("(")[0].strip(), "signature": ""})
+        # Further split on commas to handle "Cast, Coalesce" style exports
+        sub_parts = [s.strip() for s in part.split(",")]
+        for sub in sub_parts:
+            if not sub:
+                continue
+            # Match: func_name(args) -> return_type  or  func_name() → type
+            m = re.match(r"(\w+)\(([^)]*)\)\s*(?:->|→)\s*(.+)", sub)
+            if m:
+                results.append({
+                    "name": m.group(1),
+                    "signature": f"({m.group(2)}) -> {m.group(3).strip()}",
+                })
+            elif sub:
+                name = sub.split("(")[0].strip()
+                if name.isidentifier():
+                    results.append({"name": name, "signature": ""})
     return results
+
+
+_USED_BY_SENTINELS = frozenset({"none", "unknown", "n/a", "na", "internal", "self"})
 
 
 def _parse_used_by(used_by_str: str) -> list[dict[str, str | bool]]:
     """Parse 'used_by:' field into list of {module, function, cascade}."""
     results = []
     for part in used_by_str.split("|"):
-        part = part.strip()
-        cascade = "[cascade]" in part
-        part = part.replace("[cascade]", "").strip()
+        # Further split on commas to handle "aggregates.py → X, base.py → Y"
+        sub_parts = [s.strip() for s in part.split(",")]
+        for sub in sub_parts:
+            if not sub:
+                continue
+            # Skip sentinel / placeholder values (but log it)
+            if sub.lower() in _USED_BY_SENTINELS:
+                log.debug("Skipping used_by sentinel: %r", sub)
+                continue
+            cascade = "[cascade]" in sub
+            sub = sub.replace("[cascade]", "").strip()
 
-        # Match: module.py -> function_name  or  module.py → function_name
-        m = re.match(r"([\w/._-]+)\s*(?:->|→)\s*(\w+)", part)
-        if m:
-            results.append({
-                "module": m.group(1).strip(),
-                "function": m.group(2).strip(),
-                "cascade": cascade,
-            })
-        elif part:
-            results.append({"module": part, "function": "", "cascade": cascade})
+            # Match: module.py -> function_name  or  module.py → function_name
+            m = re.match(r"([\w/._-]+)\s*(?:->|→)\s*(\w+)", sub)
+            if m:
+                mod = m.group(1).strip()
+                func = m.group(2).strip()
+                # Skip if the function part is a sentinel
+                if func.lower() in _USED_BY_SENTINELS:
+                    func = ""
+                results.append({"module": mod, "function": func, "cascade": cascade})
+            elif sub and " " not in sub:
+                # Only treat as module ref if it looks like a path (no spaces)
+                results.append({"module": sub, "function": "", "cascade": cascade})
     return results
 
 
@@ -115,12 +136,13 @@ def _parse_rules(rules_str: str) -> list[str]:
     return rules
 
 
-def parse_module(path: Path, project: str = "") -> Graph:
+def parse_module(path: Path, project: str = "", root: Path | None = None) -> Graph:
     """Parse a Python module's CodeDNA annotations into RDF triples.
 
     Args:
         path: Path to the .py source file.
         project: Project name (for URI prefixing).
+        root: Codebase root directory. If given, module URIs use relative paths.
 
     Returns:
         Graph with Module, Export, Rule, and AgentSession triples.
@@ -131,7 +153,10 @@ def parse_module(path: Path, project: str = "") -> Graph:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
 
-    module_path = str(path).replace("\\", "/")
+    if root is not None:
+        module_path = str(path.resolve().relative_to(root.resolve())).replace("\\", "/")
+    else:
+        module_path = str(path).replace("\\", "/")
     module_uri_name = _make_module_uri(module_path)
     module_uri = ARCH[module_uri_name]
 
@@ -162,13 +187,31 @@ def parse_module(path: Path, project: str = "") -> Graph:
             g.add((export_uri, ARCH.signature, Literal(export["signature"], datatype=XSD.string)))
         g.add((module_uri, ARCH.exports, export_uri))
 
-    # Used_by → dependsOn triples (inverse)
-    for dep in _parse_used_by(fields.get("used_by", "")):
+    # Used_by → dependsOn triples (inverse) from annotations
+    annotation_deps = _parse_used_by(fields.get("used_by", ""))
+    annotation_dep_modules: set[str] = set()
+    for dep in annotation_deps:
         dep_module_uri = ARCH[_make_module_uri(dep["module"])]
+        annotation_dep_modules.add(dep["module"])
         if dep["cascade"]:
             g.add((dep_module_uri, ARCH.cascades, module_uri))
         else:
             g.add((dep_module_uri, ARCH.dependsOn, module_uri))
+
+    # Import-based dependsOn triples (ground truth from AST)
+    import_results: list[dict[str, str]] = []
+    if root is not None:
+        from synrax.extract.import_analyzer import analyze_imports
+        import_results = analyze_imports(path, root)
+        for imp in import_results:
+            imp_uri = ARCH[_make_module_uri(imp["module"])]
+            # Import analysis creates forward edges (this file depends on imported file)
+            g.add((module_uri, ARCH.dependsOn, imp_uri))
+
+    # Log sentinel used_by values
+    raw_used_by = fields.get("used_by", "").strip().lower()
+    if raw_used_by in _USED_BY_SENTINELS and not annotation_deps:
+        log.info("Module %s has used_by sentinel '%s'", module_path, raw_used_by)
 
     # Rules
     for idx, rule_text in enumerate(_parse_rules(fields.get("rules", "")), start=1):

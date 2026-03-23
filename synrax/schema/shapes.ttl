@@ -132,17 +132,4 @@ arch:PackageCompletenessShape a sh:NodeShape ;
         sh:severity sh:Violation ;
     ] .
 
-# -----------------------------------------------------------------------------
-# Shape 7: LoRa Duty Cycle (SIGMANEX-specific, deactivated by default)
-# Hardware modules using LoRa MUST declare duty cycle constraint.
-# -----------------------------------------------------------------------------
 
-arch:LoRaDutyCycleShape a sh:NodeShape ;
-    sh:targetClass arch:HardwareModule ;
-    sh:property [
-        sh:path arch:constrainedBy ;
-        sh:minCount 1 ;
-        sh:message "Hardware module {$this} must declare physical constraints" ;
-        sh:severity sh:Violation ;
-    ] ;
-    sh:deactivated true .
