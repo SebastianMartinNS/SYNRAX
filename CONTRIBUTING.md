@@ -22,11 +22,13 @@ pytest
 All changes must pass:
 
 ```bash
-pytest -v               # 91 tests
+pytest -v               # 160 tests
 ruff check .            # lint
 ```
 
 New features need tests. Follow patterns in existing test files.
+Key test files: `test_session_graph.py` (30 tests), `test_import_analyzer.py` (17),
+`test_runtime_tools.py` (14).
 
 ## Commit Messages
 

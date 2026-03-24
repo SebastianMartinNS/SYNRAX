@@ -13,6 +13,7 @@ venv/
 !synrax/schema/shapes.ttl
 _reference/
 _*.py
+_tmp*
 .github/prompts/
 synrax/extract/\#*
 benchmark_openrouter.py

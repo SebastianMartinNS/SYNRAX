@@ -26,8 +26,8 @@ Key components:
 - `synrax/extract/` — CodeDNA parser (`.codedna` YAML + Python docstrings → RDF/Turtle)
 - `synrax/extract/import_analyzer.py` — AST-based import analysis for ground-truth dependency edges
 - `synrax/schema/` — OWL ontology (`schema.owl`), SHACL shapes (`shapes.ttl`), dynamic extension loading
-- `synrax/query/` — SPARQL query templates (7 `.rq` files) and engine
-- `synrax/runtime/` — `SessionGraph` (incremental lazy-reasoning graph) + agent tool functions
+- `synrax/query/` — SPARQL query templates (9 `.rq` files) and engine
+- `synrax/runtime/` — `SessionGraph` (incremental lazy-reasoning graph + boundary tracking) + agent tool functions
 - `synrax/cli/` — `codedna-export` CLI: export, validate, query, serve commands
 
 ## Tech Stack
@@ -38,7 +38,7 @@ Key components:
 - **SHACL validation:** pyshacl
 - **YAML:** PyYAML (manifest + extension discovery)
 - **CLI:** click
-- **Testing:** pytest (141 tests)
+- **Testing:** pytest (160 tests)
 - **Packaging:** pyproject.toml (PEP 621)
 
 ## Code Style
@@ -52,7 +52,7 @@ Key components:
 
 ```bash
 pip install -e ".[dev]"       # install with dev deps
-pytest                        # run all 141 tests
+pytest                        # run all 160 tests
 pytest -x --tb=short          # quick fail-fast mode
 codedna-export --help         # CLI entry point
 codedna-export serve . --pre-ingest  # start runtime server
@@ -69,3 +69,5 @@ codedna-export serve . --pre-ingest  # start runtime server
 - Base schema is generic; project-specific extensions via `.codedna` `extensions` field or `--schema`/`--shapes` CLI flags
 - Runtime tools return plain strings, never raise exceptions to callers
 - SessionGraph uses lazy reasoning: OWL-RL only runs when graph is dirty and a query is executed
+- SessionGraph tracks visited files for boundary analysis (explored_pct, remaining_in_scope, out_of_scope)
+- Runtime tools include boundary tracking (`query_boundary`) and graph status (`query_graph_status`)

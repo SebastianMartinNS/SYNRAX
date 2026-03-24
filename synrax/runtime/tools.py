@@ -18,7 +18,7 @@ def _module_uri_fragment(path: str) -> str:
 
 
 def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
-    """Create the 4 agent-callable tool functions backed by a SessionGraph.
+    """Create the 5 agent-callable tool functions backed by a SessionGraph.
 
     Returns:
         Dict mapping tool name → callable.

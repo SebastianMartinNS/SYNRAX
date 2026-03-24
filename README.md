@@ -8,6 +8,9 @@ and exposes SPARQL queries for architectural impact analysis.
 
 It also provides an **incremental runtime** with a JSON-RPC server (`codedna-export serve`)
 that lets AI agents query the knowledge graph live during coding sessions.
+The runtime acts as a **negative filter**: instead of answering questions directly, it shows
+agents what they *don't* know yet — unexplored dependencies, missing coverage, out-of-scope files —
+inducing more targeted exploration and reducing noise in the context window.
 
 ## Problem
 
@@ -17,6 +20,8 @@ CodeDNA gives you structured annotations in source code. But annotations alone c
 - *"Are there orphan modules nobody depends on?"* — requires global graph analysis
 - *"Did the AI agent miss a `[cascade]` target?"* — requires formal enforcement
 - *"What does this module actually import?"* — requires AST-level analysis, not just annotations
+- *"How much of the impact zone have I explored?"* — requires boundary tracking
+- *"Which files are irrelevant to this task?"* — requires scope filtering
 
 Synrax turns flat annotations into a **queryable knowledge graph** that answers all of
 these with a single SPARQL query each. Ground-truth `import` analysis supplements
@@ -34,7 +39,7 @@ Reproducible via `python benchmarks.py`.
 | Inverse relations (`usedBy`) | 0 | 26 | from zero |
 | SHACL violations detected | 0 | 37 | from zero |
 | SHACL warnings detected | 0 | 11 | from zero |
-| SPARQL query templates | 0 | 5 | from zero |
+| SPARQL query templates | 0 | 9 | from zero |
 | Node reach (5-node chain) | 1 hop | 4 hops | 4× depth |
 
 **End-to-end pipeline** (6 modules): **< 500 ms**.
@@ -48,8 +53,9 @@ Source (.codedna manifest + Python docstrings)
     → Import Analysis (AST-based ground-truth dependency edges)
       → Reason (OWL-RL: transitive closure, inverse properties, subproperty propagation)
         → Validate (SHACL shapes → violation/warning report)
-          → Query (SPARQL templates → JSON results)
+          → Query (9 SPARQL templates → JSON results)
             → Runtime (SessionGraph + JSON-RPC server for live agent queries)
+              → Boundary Analysis (exploration tracking, node roles, scope filtering)
 ```
 
 ## Install
@@ -106,7 +112,7 @@ synrax/
 │   ├── import_analyzer.py # AST-based import analysis → ground-truth dependency edges
 │   └── pipeline.py       # Codebase walker + graph merger
 ├── schema/               # OWL ontology + SHACL validation
-│   ├── schema.owl        # ArchGraph OWL ontology (7 classes, transitive/inverse properties)
+│   ├── schema.owl        # ArchGraph OWL ontology (10 classes, transitive/inverse properties)
 │   ├── shapes.ttl        # 6 SHACL shapes (completeness, consistency, warnings)
 │   ├── reasoner.py       # OWL-RL entailment via owlrl
 │   ├── validator.py      # SHACL validation via pyshacl → JSON report
@@ -114,17 +120,19 @@ synrax/
 ├── query/                # SPARQL query engine
 │   ├── engine.py         # Template loader + parameter substitution + execution
 │   ├── templates_loader.py
-│   └── templates/        # 7 .rq files
-│       ├── impact_analysis.rq
-│       ├── unused_modules.rq
-│       ├── circular_deps.rq
-│       ├── cascade_violations.rq
-│       ├── pattern_discovery.rq
-│       ├── deps_of.rq          # Dependencies of a module
-│       └── rules_zone.rq       # Rules for a module and its impact zone
+│   └── templates/        # 9 .rq files
+│       ├── impact_analysis.rq    # Transitive impact of module changes
+│       ├── deps_of.rq            # Dependencies of a module
+│       ├── rules_zone.rq         # Rules for a module and its impact zone
+│       ├── unused_modules.rq     # Orphan modules
+│       ├── circular_deps.rq      # Circular dependency detection
+│       ├── cascade_violations.rq # Missed [cascade] targets
+│       ├── pattern_discovery.rq  # Cross-cutting defect patterns
+│       ├── node_roles.rq         # Hub/leaf/connector classification
+│       └── out_of_scope.rq       # Files outside the current impact zone
 ├── runtime/              # Incremental runtime for live agent sessions
-│   ├── session_graph.py  # SessionGraph: incremental graph + lazy OWL-RL reasoning
-│   └── tools.py          # 4 agent-callable tool functions
+│   ├── session_graph.py  # SessionGraph: incremental graph + lazy OWL-RL + boundary tracking
+│   └── tools.py          # 5 agent-callable tool functions
 ├── cli/                  # Click CLI (codedna-export)
 │   └── main.py           # export, validate, query, serve commands
 └── namespaces.py         # Central RDF namespace definitions
@@ -132,7 +140,7 @@ synrax/
 
 ## OWL Ontology
 
-The ArchGraph ontology (`synrax/schema/schema.owl`) defines:
+The ArchGraph ontology (`synrax/schema/schema.owl`) defines 10 classes:
 
 | Class | Description |
 |---|---|
@@ -141,8 +149,11 @@ The ArchGraph ontology (`synrax/schema/schema.owl`) defines:
 | `arch:Function` | Callable unit within a module |
 | `arch:Export` | Public API symbol |
 | `arch:Rule` | Architectural constraint from `rules:` field |
+| `arch:Constraint` | Formal constraint on a module or package |
+| `arch:DependencyChain` | Materialized transitive dependency path |
 | `arch:AgentSession` | AI agent work session (append-only log) |
 | `arch:Agent` | AI model instance |
+| `arch:Violation` | SHACL violation record linked to a session |
 
 Key properties:
 
@@ -168,6 +179,8 @@ are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-
 
 ## SPARQL Query Templates
 
+9 templates in `synrax/query/templates/`:
+
 | Template | Parameters | Purpose |
 |---|---|---|
 | `impact_analysis` | `module` | All modules transitively affected by changes to `module` |
@@ -175,18 +188,20 @@ are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-
 | `rules_zone` | `module` | Architectural rules for a module and its transitive impact zone |
 | `unused_modules` | — | Orphan modules nothing depends on |
 | `circular_deps` | — | Circular dependency detection via property paths |
-| `cascade_violations` | — | Agent sessions that edited a module but skipped its `[cascade]` targets |
+| `cascade_violations` | — | Agent sessions that edited a module but skipped `[cascade]` targets |
 | `pattern_discovery` | — | Cross-cutting defects (e.g., soft-delete without `deleted_at` filter) |
+| `node_roles` | — | Classify modules as hub, leaf, or connector by degree |
+| `out_of_scope` | `module` | Files outside the transitive impact zone of `module` |
 
 ## Testing
 
 ```bash
-pytest                    # 141 tests, ~8s
+pytest                    # 160 tests, ~8s
 pytest -x --tb=short      # fail-fast
 python benchmarks.py      # reproduce all benchmark numbers
 ```
 
-141 tests across 17 files:
+160 tests across 17 files:
 
 | File | Tests | Scope |
 |---|--:|---|
@@ -201,10 +216,10 @@ python benchmarks.py      # reproduce all benchmark numbers
 | `test_pipeline_advanced.py` | 7 | Edge cases: no manifest, syntax errors, skip rules |
 | `test_query.py` | 3 | Template loading |
 | `test_reasoner_advanced.py` | 6 | OWL-RL: transitivity, inverse, cascade→usedBy |
-| `test_runtime_tools.py` | 11 | Agent tool functions: impact, deps, rules, status |
+| `test_runtime_tools.py` | 14 | Agent tool functions: impact, deps, rules, status, boundary |
 | `test_schema.py` | 5 | Schema/shape loading, basic reasoning |
-| `test_session_graph.py` | 14 | Incremental ingestion, lazy reasoning, SPARQL queries |
-| `test_sparql_templates.py` | 10 | All 7 SPARQL templates functional tests |
+| `test_session_graph.py` | 30 | Incremental ingestion, lazy reasoning, boundary tracking, node roles |
+| `test_sparql_templates.py` | 10 | All 9 SPARQL templates functional tests |
 | `test_validator.py` | 10 | SHACL: conforms/violations/warnings/statistics |
 | `test_value_add.py` | 11 | E2E pipeline + paper-driven value-add |
 
@@ -216,7 +231,7 @@ python benchmarks.py      # reproduce all benchmark numbers
 | OWL reasoning | owlrl ≥6.0 | OWL-RL entailment (pure Python) |
 | SHACL validation | pyshacl ≥0.25 | Shape validation + reports |
 | CLI | Click ≥8.1 | `codedna-export` entry point |
-| Testing | pytest ≥8.0 | 141 tests |
+| Testing | pytest ≥8.0 | 160 tests |
 | YAML parsing | PyYAML ≥6.0 | .codedna manifest + extension discovery |
 
 ## Schema Extensions
@@ -259,6 +274,32 @@ The runtime uses **lazy reasoning** — OWL-RL is only re-applied when the graph
 has changed and a query is executed. This keeps ingestion fast (< 10ms per file)
 while queries always see the fully-reasoned graph.
 
+### Agent Tool Functions
+
+`make_synrax_tools(session)` returns 5 callable functions for agent integration:
+
+| Tool | Purpose |
+|---|---|
+| `query_impact(module)` | Files transitively affected by changes (direct vs transitive) |
+| `query_deps(module)` | All dependencies of a module |
+| `query_rules(module)` | Architectural rules for module and its impact zone |
+| `query_graph_status()` | Triple count, orphan modules, circular dependencies |
+| `query_boundary()` | Exploration progress: % explored, remaining in-scope, out-of-scope |
+
+All tools return plain strings and never raise exceptions to callers.
+
+### Boundary Tracking
+
+The `SessionGraph` tracks which files the agent has visited and computes an exploration boundary:
+
+- **`explored_pct`**: percentage of the impact zone that has been read
+- **`remaining_in_scope`**: files in the impact zone not yet visited
+- **`out_of_scope`**: files irrelevant to the current task (via `out_of_scope.rq`)
+- **Node roles**: hub (high connectivity), leaf (no dependents), connector (bridges zones)
+
+This acts as a **negative filter** — showing the agent what it *hasn't* explored yet,
+inducing more targeted navigation instead of random file reading.
+
 ### Programmatic Usage
 
 ```python
@@ -272,6 +313,7 @@ session.ingest_file("models/order.py")
 tools = make_synrax_tools(session)
 print(tools["query_impact"]("db/connection.py"))
 print(tools["query_graph_status"]())
+print(tools["query_boundary"]())
 ```
 
 ## Upstream
