@@ -255,3 +255,18 @@ arch:violationTimestamp a owl:DatatypeProperty ;
     rdfs:range xsd:dateTime ;
     rdfs:label "discovered at" ;
     rdfs:comment "When this violation was first detected" .
+
+# =============================================================================
+# EXP-5: Dependency edge metadata
+# =============================================================================
+
+arch:dependencyType a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "dependency type" ;
+    rdfs:comment "Source of the dependency edge: 'structural' (AST import), 'annotated' (CodeDNA used_by:), or 'inferred' (OWL-RL)" .
+
+arch:architecturalLevel a owl:DatatypeProperty ;
+    rdfs:domain arch:Module ;
+    rdfs:range xsd:string ;
+    rdfs:label "architectural level" ;
+    rdfs:comment "Inferred layer classification: 'base-layer', 'backend-impl', 'routing', 'leaf', etc." .

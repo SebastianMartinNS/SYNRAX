@@ -160,9 +160,38 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
 
         return "\n".join(lines)
 
+    def query_boundary(**_kw: str) -> str:
+        """Show exploration boundary status: what's in scope, what's out, what's remaining."""
+        if not hasattr(session, '_visited_files') or not session._visited_files:
+            return "No files visited yet. Start reading files to build the impact zone."
+
+        try:
+            status = session.get_boundary_status()
+        except Exception as e:
+            return f"Error computing boundary: {e}"
+
+        if not status:
+            return "Boundary analysis not available (no visited files)."
+
+        pct = status.get("explored_pct", 0)
+        remaining = status.get("remaining_in_scope", [])
+        out = status.get("out_of_scope_sample", [])
+
+        lines = [f"Impact zone exploration: {pct}% complete"]
+        lines.append(f"Files visited: {len(session._visited_files)}")
+        if remaining:
+            lines.append(f"Still in scope ({len(remaining)}): {', '.join(remaining[:8])}")
+        else:
+            lines.append("All in-scope files have been visited!")
+        if out:
+            lines.append(f"Out of scope (skip these): {', '.join(out[:8])}")
+
+        return "\n".join(lines)
+
     return {
         "query_impact": query_impact,
         "query_deps": query_deps,
         "query_rules": query_rules,
         "query_graph_status": query_graph_status,
+        "query_boundary": query_boundary,
     }

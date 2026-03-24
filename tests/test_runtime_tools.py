@@ -140,3 +140,30 @@ class TestEmptyGraph:
         t = make_synrax_tools(sg)
         result = t["query_graph_status"]()
         assert "0 files ingested" in result or "files ingested" in result
+
+
+# ── EXP-2: Boundary query tool ────────────────────────────────────────
+
+class TestQueryBoundary:
+    """EXP-2: Verify query_boundary tool returns exploration status."""
+
+    def test_boundary_tool_exists(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        t = make_synrax_tools(sg)
+        assert "query_boundary" in t
+
+    def test_boundary_no_visits(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        t = make_synrax_tools(sg)
+        result = t["query_boundary"]()
+        assert "No files visited" in result
+
+    def test_boundary_after_visits(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        sg.mark_visited("db/connection.py")
+        sg.mark_visited("models/order.py")
+        t = make_synrax_tools(sg)
+        result = t["query_boundary"]()
+        assert "exploration" in result.lower() or "complete" in result.lower()
+        assert "Files visited: 2" in result

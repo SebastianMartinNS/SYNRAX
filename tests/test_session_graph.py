@@ -183,3 +183,119 @@ class TestQueryIntegration:
         total = sg.ingest_all()
         assert total > 0
         assert sg.file_count >= 3  # connection, order, order_form
+
+
+# ── EXP-5: Edge source tracking ───────────────────────────────────────
+
+class TestEdgeSources:
+    """EXP-5: Verify that ingest_file tracks whether edges are structural or annotated."""
+
+    def test_edge_sources_populated(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("db/connection.py")
+        sg.ingest_file("models/order.py")
+        # models/order.py imports db.connection → structural edge
+        # db/connection.py has used_by: models/order.py → annotated edge
+        assert len(sg._edge_sources) > 0
+
+    def test_structural_edge_from_import(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("models/order.py")
+        # models/order.py has "from db.connection import get_connection"
+        # This creates a structural forward edge
+        structural = {k: v for k, v in sg._edge_sources.items() if v == "structural"}
+        assert len(structural) > 0
+
+    def test_annotated_edge_from_used_by(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("db/connection.py")
+        # db/connection.py has "used_by: models/order.py -> create_order"
+        # This creates an annotated reverse edge (models/order dependsOn db/connection)
+        annotated = {k: v for k, v in sg._edge_sources.items() if v == "annotated"}
+        assert len(annotated) > 0
+
+
+# ── EXP-2: Visited file tracking ──────────────────────────────────────
+
+class TestVisitedTracking:
+    """EXP-2: Verify mark_visited and get_boundary_status."""
+
+    def test_mark_visited_tracks_files(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.mark_visited("db/connection.py")
+        assert "db/connection.py" in sg._visited_files
+
+    def test_visited_starts_empty(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        assert len(sg._visited_files) == 0
+
+    def test_boundary_status_empty_when_no_visits(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        status = sg.get_boundary_status()
+        assert status == {}
+
+    def test_boundary_status_after_visits(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        sg.mark_visited("db/connection.py")
+        sg.mark_visited("models/order.py")
+        status = sg.get_boundary_status()
+        assert "explored_pct" in status
+        assert isinstance(status["explored_pct"], int)
+        assert 0 <= status["explored_pct"] <= 100
+        assert "remaining_in_scope" in status
+        assert "out_of_scope_sample" in status
+
+
+# ── EXP-3: Node role classification ───────────────────────────────────
+
+class TestNodeRoleClassification:
+    """EXP-3: Verify classify_node_roles hub/leaf/connector classification."""
+
+    def test_init_py_is_hub(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        roles = sg.classify_node_roles()
+        init_files = [f for f in roles if f.endswith("__init__.py")]
+        for f in init_files:
+            assert roles[f] == "hub", f"{f} should be classified as hub"
+
+    def test_leaf_modules_classified(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        roles = sg.classify_node_roles()
+        # There should be at least one non-hub role
+        non_hub = {f: r for f, r in roles.items() if r != "hub"}
+        assert len(non_hub) > 0
+
+    def test_all_ingested_files_have_roles(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        roles = sg.classify_node_roles()
+        # Every ingested file should have a role
+        for f in sg._ingested_files:
+            assert f in roles, f"Missing role for {f}"
+
+
+# ── EXP-5: Architectural level inference ──────────────────────────────
+
+class TestArchitecturalLevel:
+    """EXP-5: Verify infer_architectural_level heuristic."""
+
+    def test_init_py_is_routing(self):
+        assert SessionGraph.infer_architectural_level("db/__init__.py") == "routing"
+
+    def test_base_dir_is_base_layer(self):
+        assert SessionGraph.infer_architectural_level("backends/base/client.py") == "base-layer"
+
+    def test_mysql_is_backend_impl(self):
+        assert SessionGraph.infer_architectural_level("backends/mysql/client.py") == "backend-impl"
+
+    def test_postgresql_is_backend_impl(self):
+        assert SessionGraph.infer_architectural_level("backends/postgresql/operations.py") == "backend-impl"
+
+    def test_test_file_is_test(self):
+        assert SessionGraph.infer_architectural_level("tests/test_client.py") == "test"
+
+    def test_regular_file_is_feature(self):
+        assert SessionGraph.infer_architectural_level("models/order.py") == "feature"

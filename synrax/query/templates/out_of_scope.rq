@@ -1,0 +1,17 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Out of Scope: Find modules with NO transitive connection to {{module}} (EXP-2)
+# These modules are outside the impact zone and can be safely skipped.
+SELECT DISTINCT ?name WHERE {
+  ?m a arch:Module ;
+     arch:moduleName ?name .
+  FILTER NOT EXISTS {
+    arch:{{module}} arch:dependsOn* ?m .
+  }
+  FILTER NOT EXISTS {
+    ?m arch:dependsOn* arch:{{module}} .
+  }
+  FILTER(?m != arch:{{module}})
+}
+ORDER BY ?name
+LIMIT 20

@@ -1,0 +1,15 @@
+PREFIX arch: <http://archgraph.example.org/>
+
+# Node Roles: Compute in-degree and out-degree for each module (EXP-3)
+# Used by classify_node_roles() to distinguish hub / connector / leaf nodes
+SELECT ?name
+       (COUNT(DISTINCT ?depBy) AS ?in_deg)
+       (COUNT(DISTINCT ?depOn) AS ?out_deg)
+WHERE {
+  ?m a arch:Module ;
+     arch:moduleName ?name .
+  OPTIONAL { ?depBy arch:dependsOn ?m }
+  OPTIONAL { ?m arch:dependsOn ?depOn }
+}
+GROUP BY ?name ?m
+ORDER BY DESC(?in_deg)

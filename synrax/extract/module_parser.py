@@ -42,8 +42,10 @@ def _parse_codedna_fields(docstring: str) -> dict[str, str]:
     for match in field_pattern.finditer(docstring):
         key = match.group(1).strip()
         value = match.group(2).strip()
-        # Normalize multi-line continuations
-        value = re.sub(r"\n\s+", " ", value)
+        # Normalize multi-line continuations — but NOT for 'agent' field
+        # where each line is a separate session record
+        if key != "agent":
+            value = re.sub(r"\n\s+", " ", value)
         fields[key] = value
     return fields
 

@@ -9,6 +9,7 @@ rules:   Reasoning is lazy — only runs when a query is executed and the graph 
 from __future__ import annotations
 
 import copy
+import statistics
 from pathlib import Path
 
 from rdflib import Graph, Literal
@@ -48,6 +49,12 @@ class SessionGraph:
         self._ingested_files: set[str] = set()
         self._raw_count_before_schema = 0
         self._schema_triple_count = len(self._raw_graph)
+
+        # EXP-5: Track edge sources for confidence labels
+        self._edge_sources: dict[tuple[str, str], str] = {}
+
+        # EXP-2: Track files visited (read) by the agent
+        self._visited_files: set[str] = set()
 
     @property
     def file_count(self) -> int:
@@ -94,13 +101,33 @@ class SessionGraph:
 
         before = len(self._raw_graph)
 
-        # Parse CodeDNA annotations
+        # Snapshot edges before CodeDNA parsing to detect annotated edges
+        edges_before = set(self._raw_graph.triples((None, ARCH.dependsOn, None)))
+
+        # Parse CodeDNA annotations (adds annotated dependsOn + AST import edges)
         try:
             module_graph = parse_module(abs_path, project="", root=self._root)
             for triple in module_graph:
                 self._raw_graph.add(triple)
         except Exception:
             pass
+
+        # Track edge sources: new edges from parse_module include both types
+        # We distinguish by direction: used_by annotations create reverse edges
+        # (consumer dependsOn this_module), AST imports create forward edges
+        # (this_module dependsOn imported_module)
+        edges_after = set(self._raw_graph.triples((None, ARCH.dependsOn, None)))
+        new_edges = edges_after - edges_before
+        for s, _p, o in new_edges:
+            # Resolve module names from URIs
+            s_name = str(s).replace("http://archgraph.example.org/", "")
+            o_name = str(o).replace("http://archgraph.example.org/", "")
+            # Forward edge (this→import) = structural; reverse edge (consumer→this) = annotated
+            uri_frag = _make_module_uri(rel_path)
+            if s_name == uri_frag:
+                self._edge_sources[(rel_path, self._uri_to_path(o_name))] = "structural"
+            else:
+                self._edge_sources[(self._uri_to_path(s_name), rel_path)] = "annotated"
 
         # Ensure the module node exists even without annotations (for import edges)
         module_uri = ARCH[_make_module_uri(rel_path)]
@@ -174,3 +201,159 @@ class SessionGraph:
                 continue
             total += self.ingest_file(py_file)
         return total
+
+    # ── EXP-5: URI ↔ path helpers ──────────────────────────────────────
+
+    @staticmethod
+    def _uri_to_path(uri_fragment: str) -> str:
+        """Convert URI fragment like 'db_connection' back to approximate path 'db/connection.py'.
+
+        This is a best-effort reverse of _make_module_uri. Since underscores in
+        original paths are ambiguous, we return the fragment as-is with .py suffix.
+        """
+        # Replace underscores with "/" to approximate original path
+        return uri_fragment.replace("_", "/") + ".py"
+
+    # ── EXP-2: Visited file tracking ───────────────────────────────────
+
+    def mark_visited(self, path: str) -> None:
+        """Record that the agent read this file (for boundary analysis)."""
+        if isinstance(path, str):
+            abs_path = (self._root / path).resolve()
+        else:
+            abs_path = path.resolve()
+        try:
+            rel = str(abs_path.relative_to(self._root)).replace("\\", "/")
+        except ValueError:
+            rel = str(path)
+        self._visited_files.add(rel)
+
+    def get_boundary_status(self) -> dict:
+        """Compute how much of the impact zone the agent has explored.
+
+        Returns dict with:
+          explored_pct: int (0-100)
+          remaining_in_scope: list[str] — files in impact zone not yet visited
+          out_of_scope_sample: list[str] — files with no connection to visited set
+        """
+        if not self._visited_files:
+            return {}
+
+        # Get all modules in the impact zone of visited files
+        in_scope: set[str] = set()
+        for vf in self._visited_files:
+            uri = _make_module_uri(vf)
+            try:
+                # Files that depend on this file
+                impact = self.query_template("impact_analysis", module=uri)
+                for r in impact:
+                    in_scope.add(r.get("name", ""))
+                # Files this file depends on
+                deps = self.query_template("deps_of", module=uri)
+                for r in deps:
+                    in_scope.add(r.get("name", ""))
+            except Exception:
+                pass
+        in_scope |= self._visited_files
+        in_scope.discard("")
+
+        # All ingested files
+        all_files = set(self._ingested_files)
+
+        # Exclude __init__.py from scope counting — they are routing hubs,
+        # not real targets.  Keep them in remaining list for completeness
+        # but don't let them inflate the denominator / deflate explored_pct.
+        _is_init = lambda p: p.endswith("__init__.py")
+        meaningful_scope = {p for p in in_scope if not _is_init(p)}
+        meaningful_visited = {p for p in self._visited_files if not _is_init(p)}
+
+        remaining = sorted(in_scope - self._visited_files)
+        remaining_meaningful = [p for p in remaining if not _is_init(p)]
+        out_of_scope = sorted(all_files - in_scope)
+        explored = len(meaningful_visited & meaningful_scope)
+        total_scope = len(meaningful_scope) or 1
+
+        return {
+            "explored_pct": round(100 * explored / total_scope),
+            "remaining_in_scope": remaining_meaningful,
+            "out_of_scope_sample": out_of_scope[:10],
+        }
+
+    # ── EXP-3: Node role classification ────────────────────────────────
+
+    def classify_node_roles(self) -> dict[str, str]:
+        """Classify each ingested module as 'hub', 'leaf', or 'connector'.
+
+        hub: __init__.py OR in-degree > 2× median
+        leaf: in-degree ≤ median and not hub
+        connector: everything else
+
+        Returns dict mapping module path → role.
+        """
+        # Compute in-degree for all modules via SPARQL
+        try:
+            rows = self.query(
+                "PREFIX arch: <http://archgraph.example.org/> "
+                "SELECT ?name (COUNT(DISTINCT ?dep) AS ?in_deg) WHERE { "
+                "  ?dep arch:dependsOn ?m . "
+                "  ?m arch:moduleName ?name . "
+                "} GROUP BY ?name"
+            )
+        except Exception:
+            return {}
+
+        degrees: dict[str, int] = {}
+        for r in rows:
+            name = r.get("name", "")
+            if name:
+                degrees[name] = int(r.get("in_deg", "0"))
+
+        if not degrees:
+            return {}
+
+        # Include modules with zero in-degree
+        for f in self._ingested_files:
+            if f not in degrees:
+                degrees[f] = 0
+
+        values = list(degrees.values())
+        median_deg = statistics.median(values) if values else 0
+        threshold = max(2 * median_deg, 2)  # at least 2
+
+        roles: dict[str, str] = {}
+        for name, deg in degrees.items():
+            if name.endswith("__init__.py") or deg > threshold:
+                roles[name] = "hub"
+            elif deg <= median_deg:
+                roles[name] = "leaf"
+            else:
+                roles[name] = "connector"
+
+        return roles
+
+    # ── EXP-5: Architectural level inference ───────────────────────────
+
+    @staticmethod
+    def infer_architectural_level(module_path: str) -> str:
+        """Infer the architectural level of a module from its file path.
+
+        Heuristic classification:
+          - '__init__.py' → 'routing'
+          - 'base/' in path → 'base-layer'
+          - backend dirs (mysql/, postgresql/, oracle/, sqlite3/) → 'backend-impl'
+          - 'tests/' or 'test_' → 'test'
+          - everything else → 'feature'
+        """
+        parts = module_path.lower().replace("\\", "/").split("/")
+        filename = parts[-1] if parts else ""
+
+        if filename == "__init__.py":
+            return "routing"
+        if "base" in parts:
+            return "base-layer"
+        _BACKEND_DIRS = {"mysql", "postgresql", "oracle", "sqlite3", "sqlite"}
+        if any(p in _BACKEND_DIRS for p in parts):
+            return "backend-impl"
+        if "tests" in parts or filename.startswith("test_"):
+            return "test"
+        return "feature"
