@@ -12,8 +12,9 @@ venv/
 !synrax/schema/schema.owl
 !synrax/schema/shapes.ttl
 _reference/
-_check_models.py
-_debug_triples.py
+_*.py
+.github/prompts/
+synrax/extract/\#*
 benchmark_openrouter.py
 benchmark_results.json
 .pytest_cache/
