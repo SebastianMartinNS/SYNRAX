@@ -167,3 +167,36 @@ class TestQueryBoundary:
         result = t["query_boundary"]()
         assert "exploration" in result.lower() or "complete" in result.lower()
         assert "Files visited: 2" in result
+
+
+# ── Tension query tool ────────────────────────────────────────────────
+
+class TestQueryTension:
+    """Verify query_tension tool returns tension status."""
+
+    def test_tension_tool_exists(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        t = make_synrax_tools(sg)
+        assert "query_tension" in t
+
+    def test_tension_no_data(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        t = make_synrax_tools(sg)
+        result = t["query_tension"]()
+        assert "no dependency data" in result.lower() or "0/0" in result
+
+    def test_tension_after_ingest(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        t = make_synrax_tools(sg)
+        result = t["query_tension"]()
+        assert "blast zone" in result.lower() or "unexplored" in result.lower()
+
+    def test_tension_after_visits(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_all()
+        sg.mark_visited("db/connection.py")
+        sg.mark_visited("models/order.py")
+        t = make_synrax_tools(sg)
+        result = t["query_tension"]()
+        assert "explored" in result.lower() or "%" in result

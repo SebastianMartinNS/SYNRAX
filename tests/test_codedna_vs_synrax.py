@@ -412,6 +412,9 @@ class TestCodeDNAvsSynrax:
         g.add((ARCH.y, ARCH.dependsOn, ARCH.z))
         g.add((ARCH.z, ARCH.dependsOn, ARCH.x))
 
+        # Reason to compute transitive closure (circular_deps.rq runs on reasoned graphs)
+        reason(g)
+
         ttl = tmp_path / "circular.ttl"
         g.serialize(destination=str(ttl), format="turtle")
 

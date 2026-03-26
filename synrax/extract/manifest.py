@@ -71,6 +71,6 @@ def parse_manifest(path: Path) -> Graph:
         if isinstance(depends_on, list):
             for dep_path in depends_on:
                 dep_uri = ARCH[_make_package_uri(project, dep_path)]
-                g.add((pkg_uri, ARCH.dependsOn, dep_uri))
+                g.add((pkg_uri, ARCH.packageDependsOn, dep_uri))
 
     return g

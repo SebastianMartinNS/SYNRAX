@@ -36,7 +36,7 @@ def test_parse_manifest_depends_on():
     g = parse_manifest(FIXTURES / ".codedna")
     billing_uri = ARCH["test-project_billing"]
     api_uri = ARCH["test-project_api"]
-    assert (billing_uri, ARCH.dependsOn, api_uri) in g
+    assert (billing_uri, ARCH.packageDependsOn, api_uri) in g
 
 
 def test_parse_manifest_missing_project(tmp_path):

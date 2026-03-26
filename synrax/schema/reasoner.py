@@ -20,7 +20,11 @@ import owlrl
 from synrax.schema.loader import load_schema
 
 
-def reason(graph: Graph, schema_extensions: list[Path] | None = None) -> Graph:
+def reason(
+    graph: Graph,
+    schema_extensions: list[Path] | None = None,
+    skip_schema: bool = False,
+) -> Graph:
     """Apply OWL-RL reasoning to an RDF graph.
 
     Merges the ArchGraph OWL schema (plus any extensions), then computes
@@ -33,13 +37,15 @@ def reason(graph: Graph, schema_extensions: list[Path] | None = None) -> Graph:
     Args:
         graph: Input RDF graph with extracted triples.
         schema_extensions: Additional OWL/TTL files to merge before reasoning.
+        skip_schema: If True, skip loading/merging the schema (caller already loaded it).
 
     Returns:
         The same graph, expanded with inferred triples.
     """
-    schema = load_schema(extra=schema_extensions)
-    for triple in schema:
-        graph.add(triple)
+    if not skip_schema:
+        schema = load_schema(extra=schema_extensions)
+        for triple in schema:
+            graph.add(triple)
 
     owlrl.DeductiveClosure(owlrl.OWLRL_Semantics).expand(graph)
     return graph

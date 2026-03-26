@@ -89,6 +89,19 @@ arch:cascades a owl:ObjectProperty ;
     rdfs:label "cascades to (mandatory update)" ;
     rdfs:comment "Marked with [cascade] tag; MUST be updated on changes" .
 
+# Object Properties — Package-level dependencies (separate domain from Module)
+
+arch:packageDependsOn a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain arch:Package ;
+    rdfs:range arch:Package ;
+    rdfs:label "package depends on" ;
+    rdfs:comment "Package-level dependency from .codedna manifest. Transitive." .
+
+arch:packageUsedBy a owl:ObjectProperty ;
+    owl:inverseOf arch:packageDependsOn ;
+    rdfs:label "package used by" ;
+    rdfs:comment "Inverse of packageDependsOn; automatically inferred." .
+
 # Object Properties — Export/API relationships
 
 arch:exports a owl:ObjectProperty ;

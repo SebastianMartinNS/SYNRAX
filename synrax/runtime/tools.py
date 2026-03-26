@@ -66,7 +66,15 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
         for r in results:
             name = r.get("name", "?")
             label = "direct" if name in direct_deps else "transitive"
-            lines.append(f"  - {name} ({label})")
+            # EXP-5: Add provenance label (structural/annotated/inferred)
+            source = session.get_edge_source(name, uri.replace("_", "/") + ".py")
+            if source == "unknown":
+                # Try reverse lookup with URI-based path
+                source = session.get_edge_source(
+                    name,
+                    session._uri_to_path(uri),
+                )
+            lines.append(f"  - {name} ({label}, {source})")
 
         direct_count = sum(1 for r in results if r.get("name", "") in direct_deps)
         trans_count = len(results) - direct_count
@@ -188,10 +196,37 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
 
         return "\n".join(lines)
 
+    def query_tension(**_kw: str) -> str:
+        """Show tension level: how much of the dependency blast zone remains unexplored."""
+        try:
+            tension = session.compute_tension()
+        except Exception as e:
+            return f"Error computing tension: {e}"
+
+        total = tension.get("blast_zone_total", 0)
+        unvisited = tension.get("blast_zone_unvisited", 0)
+        ratio = tension.get("tension_ratio", 0.0)
+        high = tension.get("high_tension_files", [])
+        pct = tension.get("explored_pct", 0)
+
+        if total == 0:
+            return "No dependency data available. Read some files first."
+
+        lines = [f"Tension: {round(ratio * 100)}% of blast zone unexplored ({unvisited}/{total} files)"]
+        lines.append(f"Explored: {pct}%")
+        if high:
+            lines.append(f"High-impact unvisited: {', '.join(high)}")
+        if ratio <= 0.2:
+            lines.append("Coverage is good — consider finalizing your answer.")
+        elif ratio >= 0.5:
+            lines.append("Coverage is low — keep reading files before concluding.")
+        return "\n".join(lines)
+
     return {
         "query_impact": query_impact,
         "query_deps": query_deps,
         "query_rules": query_rules,
         "query_graph_status": query_graph_status,
         "query_boundary": query_boundary,
+        "query_tension": query_tension,
     }

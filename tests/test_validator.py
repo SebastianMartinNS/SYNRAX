@@ -146,3 +146,44 @@ def test_validate_valid_package_conforms():
     _make_valid_package(g)
     report = validate(g)
     assert report["conforms"] is True
+
+
+def test_package_with_deps_not_classified_as_module():
+    """Regression: Packages using packageDependsOn must NOT be inferred as Module after reasoning.
+
+    Previously, Packages used dependsOn (domain=Module), causing OWL-RL to classify
+    them as Module, which triggered false SHACL violations (missing moduleName).
+    With the fix, packageDependsOn has domain=Package so no type confusion occurs.
+    """
+    from synrax.schema.reasoner import reason
+
+    g = Graph()
+    bind_namespaces(g)
+
+    # Create two packages with packageDependsOn
+    pkg_a = ARCH["proj_billing"]
+    pkg_b = ARCH["proj_api"]
+    g.add((pkg_a, RDF.type, ARCH.Package))
+    g.add((pkg_a, ARCH.packageName, Literal("billing/", datatype=XSD.string)))
+    g.add((pkg_a, ARCH.purpose, Literal("Billing package", datatype=XSD.string)))
+    g.add((pkg_b, RDF.type, ARCH.Package))
+    g.add((pkg_b, ARCH.packageName, Literal("api/", datatype=XSD.string)))
+    g.add((pkg_b, ARCH.purpose, Literal("API package", datatype=XSD.string)))
+    g.add((pkg_a, ARCH.packageDependsOn, pkg_b))
+
+    # Apply OWL-RL reasoning
+    reason(g)
+
+    # Packages must NOT be classified as Module
+    modules = {s for s, _, _ in g.triples((None, RDF.type, ARCH.Module))}
+    assert pkg_a not in modules, "Package pkg_a was incorrectly classified as Module"
+    assert pkg_b not in modules, "Package pkg_b was incorrectly classified as Module"
+
+    # SHACL validation should pass (no false ModuleCompletenessShape violations)
+    report = validate(g)
+    # Filter violations to only those on our package URIs
+    pkg_violations = [
+        v for v in report["violations"]
+        if "proj_billing" in v.get("focusNode", "") or "proj_api" in v.get("focusNode", "")
+    ]
+    assert len(pkg_violations) == 0, f"Package false positives: {pkg_violations}"

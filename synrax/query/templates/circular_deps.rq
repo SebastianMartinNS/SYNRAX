@@ -1,9 +1,11 @@
 PREFIX arch: <http://archgraph.example.org/>
 
 # Circular Dependency Detection: find cycles in the dependency graph
+# Note: runs on OWL-RL reasoned graph where transitive closure is materialized,
+# so plain dependsOn already includes transitive paths.
 SELECT ?cycle WHERE {
-  ?a arch:dependsOn+ ?b .
-  ?b arch:dependsOn+ ?a .
+  ?a arch:dependsOn ?b .
+  ?b arch:dependsOn ?a .
   FILTER (?a != ?b)
   BIND(CONCAT(STR(?a), " <-> ", STR(?b)) AS ?cycle)
 }

@@ -38,7 +38,7 @@ Key components:
 - **SHACL validation:** pyshacl
 - **YAML:** PyYAML (manifest + extension discovery)
 - **CLI:** click
-- **Testing:** pytest (160 tests)
+- **Testing:** pytest (174 tests)
 - **Packaging:** pyproject.toml (PEP 621)
 
 ## Code Style
@@ -52,7 +52,7 @@ Key components:
 
 ```bash
 pip install -e ".[dev]"       # install with dev deps
-pytest                        # run all 160 tests
+pytest                        # run all 174 tests
 pytest -x --tb=short          # quick fail-fast mode
 codedna-export --help         # CLI entry point
 codedna-export serve . --pre-ingest  # start runtime server
@@ -70,4 +70,6 @@ codedna-export serve . --pre-ingest  # start runtime server
 - Runtime tools return plain strings, never raise exceptions to callers
 - SessionGraph uses lazy reasoning: OWL-RL only runs when graph is dirty and a query is executed
 - SessionGraph tracks visited files for boundary analysis (explored_pct, remaining_in_scope, out_of_scope)
-- Runtime tools include boundary tracking (`query_boundary`) and graph status (`query_graph_status`)
+- Runtime tools include boundary tracking (`query_boundary`), graph status (`query_graph_status`), and tension analysis (`query_tension`)
+- Edge provenance tracking: each dependency edge has a source (`structural`, `annotated`, `inferred`)
+- `arch:packageDependsOn` / `arch:packageUsedBy` for package-level dependencies (separate from module-level `dependsOn`)

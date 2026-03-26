@@ -132,7 +132,7 @@ synrax/
 │       └── out_of_scope.rq       # Files outside the current impact zone
 ├── runtime/              # Incremental runtime for live agent sessions
 │   ├── session_graph.py  # SessionGraph: incremental graph + lazy OWL-RL + boundary tracking
-│   └── tools.py          # 5 agent-callable tool functions
+│   └── tools.py          # 6 agent-callable tool functions
 ├── cli/                  # Click CLI (codedna-export)
 │   └── main.py           # export, validate, query, serve commands
 └── namespaces.py         # Central RDF namespace definitions
@@ -160,6 +160,8 @@ Key properties:
 - `arch:dependsOn` — **transitive** (`owl:TransitiveProperty`): full chain discovery
 - `arch:usedBy` — **inverse** of `dependsOn` (`owl:inverseOf`): auto-generated reverse perspective
 - `arch:cascades` — **subproperty** of `usedBy` (`rdfs:subPropertyOf`): enforces `[cascade]` semantics
+- `arch:packageDependsOn` — **transitive** package-level dependency (domain: `Package`)
+- `arch:packageUsedBy` — **inverse** of `packageDependsOn`: auto-generated reverse
 
 The base schema is generic. Project-specific classes (e.g., `HardwareModule`, `PhysicalConstraint`)
 are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-extensions) below.
@@ -187,7 +189,7 @@ are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-
 | `deps_of` | `module` | All modules that `module` depends on |
 | `rules_zone` | `module` | Architectural rules for a module and its transitive impact zone |
 | `unused_modules` | — | Orphan modules nothing depends on |
-| `circular_deps` | — | Circular dependency detection via property paths |
+| `circular_deps` | — | Circular dependency detection (on reasoned graph) |
 | `cascade_violations` | — | Agent sessions that edited a module but skipped `[cascade]` targets |
 | `pattern_discovery` | — | Cross-cutting defects (e.g., soft-delete without `deleted_at` filter) |
 | `node_roles` | — | Classify modules as hub, leaf, or connector by degree |
@@ -196,12 +198,12 @@ are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-
 ## Testing
 
 ```bash
-pytest                    # 160 tests, ~8s
+pytest                    # 174 tests, ~11s
 pytest -x --tb=short      # fail-fast
 python benchmarks.py      # reproduce all benchmark numbers
 ```
 
-160 tests across 17 files:
+174 tests across 17 files:
 
 | File | Tests | Scope |
 |---|--:|---|
@@ -216,11 +218,11 @@ python benchmarks.py      # reproduce all benchmark numbers
 | `test_pipeline_advanced.py` | 7 | Edge cases: no manifest, syntax errors, skip rules |
 | `test_query.py` | 3 | Template loading |
 | `test_reasoner_advanced.py` | 6 | OWL-RL: transitivity, inverse, cascade→usedBy |
-| `test_runtime_tools.py` | 14 | Agent tool functions: impact, deps, rules, status, boundary |
+| `test_runtime_tools.py` | 18 | Agent tool functions: impact, deps, rules, status, boundary, tension |
 | `test_schema.py` | 5 | Schema/shape loading, basic reasoning |
-| `test_session_graph.py` | 30 | Incremental ingestion, lazy reasoning, boundary tracking, node roles |
+| `test_session_graph.py` | 39 | Incremental ingestion, lazy reasoning, boundary tracking, node roles, tension |
 | `test_sparql_templates.py` | 10 | All 9 SPARQL templates functional tests |
-| `test_validator.py` | 10 | SHACL: conforms/violations/warnings/statistics |
+| `test_validator.py` | 11 | SHACL: conforms/violations/warnings/statistics, package regression |
 | `test_value_add.py` | 11 | E2E pipeline + paper-driven value-add |
 
 ## Tech Stack
@@ -231,7 +233,7 @@ python benchmarks.py      # reproduce all benchmark numbers
 | OWL reasoning | owlrl ≥6.0 | OWL-RL entailment (pure Python) |
 | SHACL validation | pyshacl ≥0.25 | Shape validation + reports |
 | CLI | Click ≥8.1 | `codedna-export` entry point |
-| Testing | pytest ≥8.0 | 160 tests |
+| Testing | pytest ≥8.0 | 174 tests |
 | YAML parsing | PyYAML ≥6.0 | .codedna manifest + extension discovery |
 
 ## Schema Extensions
@@ -276,15 +278,16 @@ while queries always see the fully-reasoned graph.
 
 ### Agent Tool Functions
 
-`make_synrax_tools(session)` returns 5 callable functions for agent integration:
+`make_synrax_tools(session)` returns 6 callable functions for agent integration:
 
 | Tool | Purpose |
 |---|---|
-| `query_impact(module)` | Files transitively affected by changes (direct vs transitive) |
+| `query_impact(module)` | Files transitively affected by changes (direct vs transitive, with provenance) |
 | `query_deps(module)` | All dependencies of a module |
 | `query_rules(module)` | Architectural rules for module and its impact zone |
 | `query_graph_status()` | Triple count, orphan modules, circular dependencies |
 | `query_boundary()` | Exploration progress: % explored, remaining in-scope, out-of-scope |
+| `query_tension()` | Tension level: how much of the blast zone remains unexplored |
 
 All tools return plain strings and never raise exceptions to callers.
 
@@ -296,6 +299,8 @@ The `SessionGraph` tracks which files the agent has visited and computes an expl
 - **`remaining_in_scope`**: files in the impact zone not yet visited
 - **`out_of_scope`**: files irrelevant to the current task (via `out_of_scope.rq`)
 - **Node roles**: hub (high connectivity), leaf (no dependents), connector (bridges zones)
+- **Tension engine**: quantifies unexplored blast zone (ratio, high-impact unvisited files)
+- **Edge provenance**: each dependency edge tracked as `structural`, `annotated`, or `inferred`
 
 This acts as a **negative filter** — showing the agent what it *hasn't* explored yet,
 inducing more targeted navigation instead of random file reading.

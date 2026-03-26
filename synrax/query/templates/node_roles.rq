@@ -1,15 +1,31 @@
 PREFIX arch: <http://archgraph.example.org/>
 
 # Node Roles: Compute in-degree and out-degree for each module (EXP-3)
-# Used by classify_node_roles() to distinguish hub / connector / leaf nodes
+# Used by classify_node_roles() to distinguish hub / connector / leaf nodes.
+# Counts only DIRECT dependencies (excludes transitive-only edges) by filtering
+# out edges where a shorter path exists through an intermediate node.
 SELECT ?name
        (COUNT(DISTINCT ?depBy) AS ?in_deg)
        (COUNT(DISTINCT ?depOn) AS ?out_deg)
 WHERE {
   ?m a arch:Module ;
      arch:moduleName ?name .
-  OPTIONAL { ?depBy arch:dependsOn ?m }
-  OPTIONAL { ?m arch:dependsOn ?depOn }
+  OPTIONAL {
+    ?depBy arch:dependsOn ?m .
+    FILTER NOT EXISTS {
+      ?depBy arch:dependsOn ?mid .
+      ?mid arch:dependsOn ?m .
+      FILTER(?mid != ?m && ?mid != ?depBy)
+    }
+  }
+  OPTIONAL {
+    ?m arch:dependsOn ?depOn .
+    FILTER NOT EXISTS {
+      ?m arch:dependsOn ?mid2 .
+      ?mid2 arch:dependsOn ?depOn .
+      FILTER(?mid2 != ?depOn && ?mid2 != ?m)
+    }
+  }
 }
 GROUP BY ?name ?m
 ORDER BY DESC(?in_deg)

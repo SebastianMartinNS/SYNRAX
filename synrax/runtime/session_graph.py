@@ -156,8 +156,19 @@ class SessionGraph:
 
         # Deep copy raw graph, then reason over the copy
         self._reasoned_graph = copy.deepcopy(self._raw_graph)
-        reason(self._reasoned_graph)
+        reason(self._reasoned_graph, skip_schema=True)
         self._dirty = False
+
+        # EXP-5: Track inferred edges (new dependsOn triples from reasoning)
+        raw_deps = set(self._raw_graph.triples((None, ARCH.dependsOn, None)))
+        reasoned_deps = set(self._reasoned_graph.triples((None, ARCH.dependsOn, None)))
+        for s, _p, o in reasoned_deps - raw_deps:
+            s_name = str(s).replace("http://archgraph.example.org/", "")
+            o_name = str(o).replace("http://archgraph.example.org/", "")
+            key = (self._uri_to_path(s_name), self._uri_to_path(o_name))
+            if key not in self._edge_sources:
+                self._edge_sources[key] = "inferred"
+
         return self._reasoned_graph
 
     def query(self, sparql: str, **params: str) -> list[dict[str, str]]:
@@ -203,6 +214,18 @@ class SessionGraph:
         return total
 
     # ── EXP-5: URI ↔ path helpers ──────────────────────────────────────
+
+    def get_edge_source(self, from_path: str, to_path: str) -> str:
+        """Return the provenance of a dependency edge.
+
+        Args:
+            from_path: Source module path (e.g. 'models/order.py').
+            to_path: Target module path (e.g. 'db/connection.py').
+
+        Returns:
+            One of 'structural', 'annotated', 'inferred', or 'unknown'.
+        """
+        return self._edge_sources.get((from_path, to_path), "unknown")
 
     @staticmethod
     def _uri_to_path(uri_fragment: str) -> str:
@@ -279,6 +302,88 @@ class SessionGraph:
             "out_of_scope_sample": out_of_scope[:10],
         }
 
+    # ── Tension engine ────────────────────────────────────────────────
+
+    def compute_tension(self) -> dict:
+        """Compute tension between explored and unexplored impact zone.
+
+        Returns dict with:
+          blast_zone_total: int — meaningful files in impact zone
+          blast_zone_unvisited: int — unvisited meaningful files in impact zone
+          tension_ratio: float (0.0=fully explored, 1.0=nothing explored)
+          high_tension_files: list[str] — top 3 unvisited files ranked by in-degree
+          explored_pct: int (0-100)
+        """
+        if not self._visited_files:
+            # Pre-ingested but nothing visited — maximum tension
+            meaningful = {f for f in self._ingested_files
+                         if not f.endswith("__init__.py")}
+            return {
+                "blast_zone_total": len(meaningful),
+                "blast_zone_unvisited": len(meaningful),
+                "tension_ratio": 1.0 if meaningful else 0.0,
+                "high_tension_files": [],
+                "explored_pct": 0,
+            }
+
+        boundary = self.get_boundary_status()
+        if not boundary:
+            return {
+                "blast_zone_total": 0,
+                "blast_zone_unvisited": 0,
+                "tension_ratio": 0.0,
+                "high_tension_files": [],
+                "explored_pct": 0,
+            }
+
+        remaining = boundary.get("remaining_in_scope", [])
+        explored_pct = boundary.get("explored_pct", 0)
+
+        # Build in_scope the same way as get_boundary_status
+        _is_init = lambda p: p.endswith("__init__.py")
+        in_scope: set[str] = set()
+        for vf in self._visited_files:
+            uri = _make_module_uri(vf)
+            try:
+                impact = self.query_template("impact_analysis", module=uri)
+                for r in impact:
+                    in_scope.add(r.get("name", ""))
+                deps = self.query_template("deps_of", module=uri)
+                for r in deps:
+                    in_scope.add(r.get("name", ""))
+            except Exception:
+                pass
+        in_scope |= self._visited_files
+        in_scope.discard("")
+        meaningful_scope = {p for p in in_scope if not _is_init(p)}
+        meaningful_remaining = [p for p in remaining if not _is_init(p)]
+        total = len(meaningful_scope) or 1
+        unvisited = len(meaningful_remaining)
+
+        # Rank unvisited by in-degree (most dependents first)
+        degrees: dict[str, int] = {}
+        try:
+            rows = self.query_template("node_roles")
+            for r in rows:
+                name = r.get("name", "")
+                if name:
+                    degrees[name] = int(r.get("in_deg", "0"))
+        except Exception:
+            pass
+
+        high_tension = sorted(
+            meaningful_remaining,
+            key=lambda f: -degrees.get(f, 0),
+        )[:3]
+
+        return {
+            "blast_zone_total": total,
+            "blast_zone_unvisited": unvisited,
+            "tension_ratio": round(unvisited / total, 2) if total else 0.0,
+            "high_tension_files": high_tension,
+            "explored_pct": explored_pct,
+        }
+
     # ── EXP-3: Node role classification ────────────────────────────────
 
     def classify_node_roles(self) -> dict[str, str]:
@@ -288,17 +393,13 @@ class SessionGraph:
         leaf: in-degree ≤ median and not hub
         connector: everything else
 
+        Uses the node_roles.rq template which counts only direct (non-transitive)
+        dependencies to avoid inflated degrees on reasoned graphs.
+
         Returns dict mapping module path → role.
         """
-        # Compute in-degree for all modules via SPARQL
         try:
-            rows = self.query(
-                "PREFIX arch: <http://archgraph.example.org/> "
-                "SELECT ?name (COUNT(DISTINCT ?dep) AS ?in_deg) WHERE { "
-                "  ?dep arch:dependsOn ?m . "
-                "  ?m arch:moduleName ?name . "
-                "} GROUP BY ?name"
-            )
+            rows = self.query_template("node_roles")
         except Exception:
             return {}
 
