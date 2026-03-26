@@ -3,8 +3,6 @@
 from pathlib import Path
 
 import pytest
-from rdflib import Literal
-from rdflib.namespace import XSD
 
 from synrax.extract.manifest import parse_manifest
 from synrax.namespaces import ARCH, RDF

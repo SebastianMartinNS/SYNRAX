@@ -183,7 +183,8 @@ def test_package_with_deps_not_classified_as_module():
     report = validate(g)
     # Filter violations to only those on our package URIs
     pkg_violations = [
-        v for v in report["violations"]
+        v
+        for v in report["violations"]
         if "proj_billing" in v.get("focusNode", "") or "proj_api" in v.get("focusNode", "")
     ]
     assert len(pkg_violations) == 0, f"Package false positives: {pkg_violations}"

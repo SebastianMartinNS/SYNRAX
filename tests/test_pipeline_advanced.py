@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-from rdflib import Graph
-
 from synrax.extract.pipeline import extract_codebase
 from synrax.namespaces import ARCH, RDF
 
@@ -12,7 +10,8 @@ def test_pipeline_no_manifest(tmp_path: Path):
     """Pipeline should work even without a .codedna manifest."""
     # Create a Python file with CodeDNA docstring but no manifest
     py_file = tmp_path / "service.py"
-    py_file.write_text('''\
+    py_file.write_text(
+        '''\
 """service.py — User authentication service.
 
 exports: login(email, password) -> bool
@@ -28,7 +27,9 @@ def login(email: str, password: str) -> bool:
     Rules: Must validate email format before DB lookup.
     """
     return True
-''', encoding="utf-8")
+''',
+        encoding="utf-8",
+    )
 
     g = extract_codebase(tmp_path)
     modules = list(g.subjects(RDF.type, ARCH.Module))
@@ -80,7 +81,10 @@ def test_pipeline_handles_syntax_errors(tmp_path: Path):
     bad.write_text("def foo(\n  # missing closing paren")
 
     good = tmp_path / "good.py"
-    good.write_text('"""good.py — Works fine.\n\nexports: run() -> None\nrules: Test rule.\n"""', encoding="utf-8")
+    good.write_text(
+        '"""good.py — Works fine.\n\nexports: run() -> None\nrules: Test rule.\n"""',
+        encoding="utf-8",
+    )
 
     g = extract_codebase(tmp_path)
     # Should still get the good file

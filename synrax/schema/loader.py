@@ -1,6 +1,8 @@
 """synrax/schema/loader.py — Load OWL schema and SHACL shapes with dynamic extension support.
 
-exports: load_schema(extra) -> Graph | load_shapes(extra) -> Graph | discover_extensions(root) -> list[Path]
+exports: load_schema(extra) -> Graph
+         | load_shapes(extra) -> Graph
+         | discover_extensions(root) -> list[Path]
 used_by: synrax/schema/__init__.py | synrax/schema/reasoner.py | synrax/schema/validator.py
 rules:   Base schema/shapes are always loaded from bundled files.
          Extra OWL/TTL files can be merged in for project-specific extensions.

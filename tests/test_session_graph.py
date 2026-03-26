@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from synrax.namespaces import ARCH
 from synrax.runtime.session_graph import SessionGraph
 
 
@@ -22,7 +21,7 @@ def project_tree(tmp_path: Path) -> Path:
         '"""db/connection.py - Database pool.\n\n'
         "exports: get_connection() -> Connection\n"
         "used_by: models/order.py -> create_order\n"
-        'rules:   Always use parameterized queries.\n'
+        "rules:   Always use parameterized queries.\n"
         '"""\n\n'
         "def get_connection(): pass\n",
         **enc,
@@ -35,7 +34,7 @@ def project_tree(tmp_path: Path) -> Path:
         '"""models/order.py - Order logic.\n\n'
         "exports: create_order(data) -> Order\n"
         "used_by: forms/order_form.py -> validate_order [cascade]\n"
-        'rules:   States: draft -> confirmed -> paid.\n'
+        "rules:   States: draft -> confirmed -> paid.\n"
         '"""\n\n'
         "from db.connection import get_connection\n\n"
         "def create_order(data): pass\n",
@@ -49,7 +48,7 @@ def project_tree(tmp_path: Path) -> Path:
         '"""forms/order_form.py - Order validation.\n\n'
         "exports: validate_order(data) -> bool\n"
         "used_by: views/checkout.py -> checkout_view\n"
-        'rules:   Totals in cents, never float.\n'
+        "rules:   Totals in cents, never float.\n"
         '"""\n\n'
         "from models.order import create_order\n\n"
         "def validate_order(data): pass\n",
@@ -187,6 +186,7 @@ class TestQueryIntegration:
 
 # ── EXP-5: Edge source tracking ───────────────────────────────────────
 
+
 class TestEdgeSources:
     """EXP-5: Verify that ingest_file tracks whether edges are structural or annotated."""
 
@@ -219,10 +219,7 @@ class TestEdgeSources:
         sg.ingest_file("db/connection.py")
         sg.ingest_file("models/order.py")
         # There should be at least one edge with a known source
-        has_known = any(
-            sg.get_edge_source(f, t) != "unknown"
-            for f, t in sg._edge_sources
-        )
+        has_known = any(sg.get_edge_source(f, t) != "unknown" for f, t in sg._edge_sources)
         assert has_known
 
     def test_get_edge_source_unknown_for_missing(self, project_tree: Path):
@@ -242,6 +239,7 @@ class TestEdgeSources:
 
 
 # ── EXP-2: Visited file tracking ──────────────────────────────────────
+
 
 class TestVisitedTracking:
     """EXP-2: Verify mark_visited and get_boundary_status."""
@@ -275,6 +273,7 @@ class TestVisitedTracking:
 
 # ── EXP-3: Node role classification ───────────────────────────────────
 
+
 class TestNodeRoleClassification:
     """EXP-3: Verify classify_node_roles hub/leaf/connector classification."""
 
@@ -305,6 +304,7 @@ class TestNodeRoleClassification:
 
 # ── EXP-5: Architectural level inference ──────────────────────────────
 
+
 class TestArchitecturalLevel:
     """EXP-5: Verify infer_architectural_level heuristic."""
 
@@ -318,7 +318,10 @@ class TestArchitecturalLevel:
         assert SessionGraph.infer_architectural_level("backends/mysql/client.py") == "backend-impl"
 
     def test_postgresql_is_backend_impl(self):
-        assert SessionGraph.infer_architectural_level("backends/postgresql/operations.py") == "backend-impl"
+        assert (
+            SessionGraph.infer_architectural_level("backends/postgresql/operations.py")
+            == "backend-impl"
+        )
 
     def test_test_file_is_test(self):
         assert SessionGraph.infer_architectural_level("tests/test_client.py") == "test"
@@ -328,6 +331,7 @@ class TestArchitecturalLevel:
 
 
 # ── Tension engine ────────────────────────────────────────────────────
+
 
 class TestComputeTension:
     """Verify compute_tension() returns correct tension metrics."""
@@ -387,6 +391,7 @@ class TestComputeTension:
 
 # ── Step 3.1: URI collision tests ─────────────────────────────────────
 
+
 class TestURICollision:
     """Verify that underscores in filenames don't collide with directory separators."""
 
@@ -398,8 +403,8 @@ class TestURICollision:
         # my_model.py (underscore in filename)
         (tmp_path / "my_model.py").write_text(
             '"""my_model.py \u2014 Flat module.\n\n'
-            'exports: flat_func() -> None\n'
-            'rules:   Flat module rule.\n'
+            "exports: flat_func() -> None\n"
+            "rules:   Flat module rule.\n"
             '"""\n\n'
             "def flat_func(): pass\n",
             **enc,
@@ -410,8 +415,8 @@ class TestURICollision:
         (tmp_path / "my" / "__init__.py").write_text("", **enc)
         (tmp_path / "my" / "model.py").write_text(
             '"""my/model.py \u2014 Nested module.\n\n'
-            'exports: nested_func() -> None\n'
-            'rules:   Nested module rule.\n'
+            "exports: nested_func() -> None\n"
+            "rules:   Nested module rule.\n"
             '"""\n\n'
             "def nested_func(): pass\n",
             **enc,
@@ -422,11 +427,12 @@ class TestURICollision:
     def test_distinct_uris(self, collision_tree: Path):
         """my_model.py and my/model.py must produce different URIs."""
         from synrax.namespaces import make_module_uri
+
         uri_flat = make_module_uri("my_model.py")
         uri_nested = make_module_uri("my/model.py")
         assert uri_flat != uri_nested
-        assert uri_flat == "my_model"       # underscore preserved
-        assert uri_nested == "my::model"    # directory uses ::
+        assert uri_flat == "my_model"  # underscore preserved
+        assert uri_nested == "my::model"  # directory uses ::
 
     def test_distinct_ingestion(self, collision_tree: Path):
         """Both files ingest without overwriting each other."""
@@ -454,6 +460,7 @@ class TestURICollision:
     def test_roundtrip_uri_to_path(self):
         """URI \u2192 path roundtrip preserves underscores vs directories."""
         from synrax.namespaces import make_module_uri, uri_to_path
+
         assert uri_to_path(make_module_uri("my_model.py")) == "my_model.py"
         assert uri_to_path(make_module_uri("my/model.py")) == "my/model.py"
 
@@ -462,8 +469,8 @@ class TestURICollision:
         # Add a cross-import from my/model.py \u2192 my_model.py
         (collision_tree / "my" / "model.py").write_text(
             '"""my/model.py \u2014 Nested module.\n\n'
-            'exports: nested_func() -> None\n'
-            'rules:   Nested module rule.\n'
+            "exports: nested_func() -> None\n"
+            "rules:   Nested module rule.\n"
             '"""\n\n'
             "from my_model import flat_func\n\n"
             "def nested_func(): pass\n",
@@ -478,6 +485,7 @@ class TestURICollision:
 
 
 # ── Step 3.2: Edge provenance serialization tests ─────────────────────
+
 
 class TestProvenanceSerialization:
     """Verify serialize_provenance() and load_provenance() round-trip correctly."""

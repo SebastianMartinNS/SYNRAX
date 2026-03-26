@@ -12,7 +12,6 @@ from collections.abc import Callable
 from synrax.namespaces import make_module_uri, uri_to_path
 from synrax.runtime.session_graph import SessionGraph
 
-
 # Keep backward-compatible alias
 _module_uri_fragment = make_module_uri
 
@@ -78,7 +77,9 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
 
         direct_count = sum(1 for r in results if r.get("name", "") in direct_deps)
         trans_count = len(results) - direct_count
-        lines.append(f"[{len(results)} files total, {direct_count} direct, {trans_count} transitive]")
+        lines.append(
+            f"[{len(results)} files total, {direct_count} direct, {trans_count} transitive]"
+        )
         return "\n".join(lines)
 
     def query_deps(module_path: str, **_kw: str) -> str:
@@ -170,7 +171,7 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
 
     def query_boundary(**_kw: str) -> str:
         """Show exploration boundary status: what's in scope, what's out, what's remaining."""
-        if not hasattr(session, '_visited_files') or not session._visited_files:
+        if not hasattr(session, "_visited_files") or not session._visited_files:
             return "No files visited yet. Start reading files to build the impact zone."
 
         try:
@@ -212,7 +213,9 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
         if total == 0:
             return "No dependency data available. Read some files first."
 
-        lines = [f"Tension: {round(ratio * 100)}% of blast zone unexplored ({unvisited}/{total} files)"]
+        lines = [
+            f"Tension: {round(ratio * 100)}% of blast zone unexplored ({unvisited}/{total} files)"
+        ]
         lines.append(f"Explored: {pct}%")
         if high:
             lines.append(f"High-impact unvisited: {', '.join(high)}")

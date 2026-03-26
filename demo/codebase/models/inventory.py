@@ -2,7 +2,8 @@
 
 exports: check_stock(product_id: int) -> bool | deduct_stock(product_id: int, qty: int) -> None
 used_by: forms/order_form.py -> validate_order | models/order.py -> confirm_order [cascade]
-rules:   Stock is eventually consistent — always re-check at confirmation time, not just at validation.
+rules:   Stock is eventually consistent — always re-check at
+         confirmation time, not just at validation.
          Uses SELECT FOR UPDATE to prevent race conditions on deduction.
 agent:   claude-opus-4 | anthropic | 2026-03-12 | Initial inventory model with pessimistic locking.
 """

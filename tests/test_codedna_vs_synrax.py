@@ -19,10 +19,10 @@ from synrax.query.engine import run_query
 from synrax.schema.reasoner import reason
 from synrax.schema.validator import validate
 
-
 # ---------------------------------------------------------------------------
 # Shared fixture: realistic 5-module codebase with CodeDNA annotations
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def realistic_codebase(tmp_path: Path):
@@ -75,7 +75,8 @@ def realistic_codebase(tmp_path: Path):
     (forms_dir / "order_form.py").write_text(
         '"""forms/order_form.py \u2014 Order validation.\n\n'
         "exports: validate_order(data: dict) -> bool, build_line_items(cart) -> list\n"
-        "used_by: views/checkout.py -> checkout_view [cascade], notifications/email.py -> send_confirmation\n"
+        "used_by: views/checkout.py -> checkout_view [cascade], "
+        "notifications/email.py -> send_confirmation\n"
         "rules:   Quantities must be positive integers. Reject negative totals.\n"
         "agent:   test-model | test-provider | 2026-02-10 | Added line item builder.\n"
         '"""\n\n'
@@ -151,6 +152,7 @@ def realistic_codebase(tmp_path: Path):
 # Helper: build a simple module graph in-memory
 # ---------------------------------------------------------------------------
 
+
 def _make_chain(names: list[str]) -> Graph:
     """Build a linear dependency chain: names[0]→names[1]→…→names[-1]."""
     g = Graph()
@@ -209,9 +211,7 @@ class TestCodeDNAvsSynrax:
             f"Expected >2× amplification, got {reasoned_count}/{raw_count} "
             f"= {reasoned_count / raw_count:.1f}×"
         )
-        assert inferred >= 50, (
-            f"Expected ≥50 inferred triples, got {inferred}"
-        )
+        assert inferred >= 50, f"Expected ≥50 inferred triples, got {inferred}"
 
     # ------------------------------------------------------------------
     # 2. Transitive depth discovery: dependency reach per node
@@ -301,14 +301,10 @@ class TestCodeDNAvsSynrax:
         assert len(report["violations"]) >= 4, (
             f"Expected ≥4 violations, got {len(report['violations'])}"
         )
-        assert len(report["warnings"]) >= 1, (
-            f"Expected ≥1 warning, got {len(report['warnings'])}"
-        )
+        assert len(report["warnings"]) >= 1, f"Expected ≥1 warning, got {len(report['warnings'])}"
 
         # Each defect should produce a unique message keyword
-        all_messages = " ".join(
-            v.get("resultMessage", "") for v in report["violations"]
-        )
+        all_messages = " ".join(v.get("resultMessage", "") for v in report["violations"])
         assert "moduleName" in all_messages, "Missing moduleName defect not caught"
         assert "purpose" in all_messages, "Missing purpose defect not caught"
         assert "exportName" in all_messages, "Missing exportName defect not caught"
@@ -342,12 +338,9 @@ class TestCodeDNAvsSynrax:
         raw_count = len(raw_results)
         reasoned_count = len(reasoned_results)
 
-        assert raw_count == 1, (
-            f"Raw impact of 'db' should be 1 (only models), got {raw_count}"
-        )
+        assert raw_count == 1, f"Raw impact of 'db' should be 1 (only models), got {raw_count}"
         assert reasoned_count == 3, (
-            f"Reasoned impact of 'db' should be 3 (models+forms+views), "
-            f"got {reasoned_count}"
+            f"Reasoned impact of 'db' should be 3 (models+forms+views), got {reasoned_count}"
         )
 
     # ------------------------------------------------------------------
@@ -449,7 +442,9 @@ class TestCodeDNAvsSynrax:
         assert "orphan_d" in names, f"Orphan D not found, got {names}"
         # Modules that are depended-upon (conn_b, conn_c) should NOT be orphans
         for depended_upon in ["conn_b", "conn_c"]:
-            assert depended_upon not in names, f"{depended_upon} is depended-upon, should not be an orphan"
+            assert depended_upon not in names, (
+                f"{depended_upon} is depended-upon, should not be an orphan"
+            )
 
     # ------------------------------------------------------------------
     # 9. Full pipeline performance
@@ -554,9 +549,7 @@ class TestCodeDNAvsSynrax:
         indep_after = set(indep_g.triples((None, ARCH.dependsOn, None)))
         indep_new = len(indep_after) - len(indep_before)
 
-        assert chain_new >= 3, (
-            f"Chain should gain ≥3 new dependsOn edges, got {chain_new}"
-        )
+        assert chain_new >= 3, f"Chain should gain ≥3 new dependsOn edges, got {chain_new}"
         assert indep_new == 0, (
             f"Independent modules should gain 0 new dependsOn edges, got {indep_new}"
         )

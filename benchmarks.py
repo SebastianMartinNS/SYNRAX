@@ -90,7 +90,7 @@ def main():
     reasoned.serialize(destination=str(TTL), format="turtle")
 
     # Find module URIs
-    for s, p, o in reasoned.triples((None, ARCH.moduleName, None)):
+    for s, _p, o in reasoned.triples((None, ARCH.moduleName, None)):
         uri_frag = str(s).split("/")[-1]
         results = run_query("impact_analysis", TTL, module=uri_frag)
         if results:
@@ -141,7 +141,7 @@ def main():
     t_reason = time.monotonic() - t1
 
     t2 = time.monotonic()
-    rep = validate(g2)
+    validate(g2)
     t_validate = time.monotonic() - t2
 
     g2.serialize(destination=str(TTL), format="turtle")

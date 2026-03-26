@@ -1,7 +1,10 @@
 """synrax/extract/import_analyzer.py — AST-based import analysis for ground-truth dependencies.
 
-exports: analyze_imports(path, root) -> list[dict] | resolve_import_to_file(import_path, root) -> Path | None | build_import_graph(root) -> Graph
-used_by: synrax/extract/module_parser.py → parse_module | synrax/runtime/session_graph.py → ingest_file
+exports: analyze_imports(path, root) -> list[dict]
+         | resolve_import_to_file(import_path, root) -> Path | None
+         | build_import_graph(root) -> Graph
+used_by: synrax/extract/module_parser.py → parse_module
+         | synrax/runtime/session_graph.py → ingest_file
 rules:   Only creates edges for intra-project imports (excludes stdlib + third-party).
          Uses ast.parse, never regex on import lines.
 """
@@ -18,14 +21,18 @@ from rdflib.namespace import XSD
 from synrax.namespaces import ARCH, RDF, bind_namespaces, make_module_uri
 
 # stdlib top-level module names (frozen for Python 3.11+)
-_STDLIB_TOP = frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else frozenset()
+_STDLIB_TOP = (
+    frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else frozenset()
+)
 
 
 # Keep backward-compatible alias
 _make_module_uri = make_module_uri
 
 
-def resolve_import_to_file(import_path: str, root: Path, source_file: Path | None = None) -> Path | None:
+def resolve_import_to_file(
+    import_path: str, root: Path, source_file: Path | None = None
+) -> Path | None:
     """Map a dotted import path to a .py file within the project.
 
     Args:
@@ -62,7 +69,8 @@ def analyze_imports(path: Path, root: Path) -> list[dict[str, str]]:
         root: Codebase root directory.
 
     Returns:
-        List of dicts with keys: 'module' (relative path), 'imported_name', 'type' ('import'|'from').
+        List of dicts with keys: 'module' (relative path),
+        'imported_name', 'type' ('import'|'from').
     """
     root = root.resolve()
     path = path.resolve()
@@ -84,11 +92,13 @@ def analyze_imports(path: Path, root: Path) -> list[dict[str, str]]:
                     rel = str(resolved.relative_to(root)).replace("\\", "/")
                     if rel not in seen:
                         seen.add(rel)
-                        results.append({
-                            "module": rel,
-                            "imported_name": alias.asname or alias.name.split(".")[-1],
-                            "type": "import",
-                        })
+                        results.append(
+                            {
+                                "module": rel,
+                                "imported_name": alias.asname or alias.name.split(".")[-1],
+                                "type": "import",
+                            }
+                        )
 
         elif isinstance(node, ast.ImportFrom):
             if node.module is None:
@@ -121,11 +131,13 @@ def analyze_imports(path: Path, root: Path) -> list[dict[str, str]]:
                 if rel not in seen:
                     seen.add(rel)
                     names = ", ".join(a.name for a in (node.names or []))
-                    results.append({
-                        "module": rel,
-                        "imported_name": names or node.module.split(".")[-1],
-                        "type": "from",
-                    })
+                    results.append(
+                        {
+                            "module": rel,
+                            "imported_name": names or node.module.split(".")[-1],
+                            "type": "from",
+                        }
+                    )
 
     return results
 

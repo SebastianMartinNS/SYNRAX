@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import os
 import re
@@ -68,15 +69,16 @@ REPOS: dict[str, dict[str, str]] = {
 }
 
 CACHE_DIR = Path(__file__).parent / ".bench_cache"
-MAX_TURNS = 25          # max tool-call rounds per question
+MAX_TURNS = 25  # max tool-call rounds per question
 MAX_FILE_CHARS = 8_000  # cap per read_file to avoid blowing context
-PASS_THRESHOLD = 0.5    # F1 >= this counts as pass@1
+PASS_THRESHOLD = 0.5  # F1 >= this counts as pass@1
 TENSION_ALERT_INTERVAL = 3  # inject tension alert every N file-reads
 
 
 # ---------------------------------------------------------------------------
 # REPO DOWNLOAD (reused from benchmark_real.py)
 # ---------------------------------------------------------------------------
+
 
 def download_repo(name: str, config: dict[str, str]) -> tuple[Path, Path]:
     CACHE_DIR.mkdir(exist_ok=True)
@@ -116,6 +118,7 @@ def _find_top(base: Path) -> Path:
 # DEPENDENCY GRAPH (pure AST — honest ground truth)
 # ---------------------------------------------------------------------------
 
+
 def build_dep_graph(project_root: Path, package_dir: Path) -> dict[str, set[str]]:
     project_root = project_root.resolve()
     graph: dict[str, set[str]] = {}
@@ -148,9 +151,8 @@ def build_dep_graph(project_root: Path, package_dir: Path) -> dict[str, set[str]
                     base = py_file.parent
                     for _ in range(node.level - 1):
                         base = base.parent
-                    for alias in (node.names or []):
-                        for cand in [base / alias.name / "__init__.py",
-                                     base / f"{alias.name}.py"]:
+                    for alias in node.names or []:
+                        for cand in [base / alias.name / "__init__.py", base / f"{alias.name}.py"]:
                             if cand.is_file() and cand.resolve() != py_file:
                                 _add_edge(graph, src_rel, cand.resolve(), project_root)
                                 break
@@ -176,7 +178,9 @@ def build_dep_graph(project_root: Path, package_dir: Path) -> dict[str, set[str]
 
 
 def _resolve_import(import_path: str, root: Path) -> Path | None:
-    _STDLIB = frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else frozenset()
+    _STDLIB = (
+        frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else frozenset()
+    )
     parts = import_path.split(".")
     if parts[0] in _STDLIB:
         return None
@@ -251,6 +255,7 @@ def _find_cycles(graph: dict[str, set[str]]) -> list[tuple[str, str]]:
 # QUESTION GENERATION (same as benchmark_real.py, reused)
 # ---------------------------------------------------------------------------
 
+
 def generate_questions(
     graph: dict[str, set[str]],
     package_name: str,
@@ -268,31 +273,37 @@ def generate_questions(
     top_mod = max(real_modules, key=lambda m: impact[m])
     top_deps = sorted(_bfs(rev, top_mod))
     if top_deps:
-        questions.append({
-            "id": f"{package_name}_Q1_blast",
-            "task": (
-                f"Find all modules that would be affected if `{top_mod}` is completely rewritten. "
-                f"List ALL modules that directly or indirectly depend on it. "
-                f"Give your final answer as a list of file paths."
-            ),
-            "ground_truth": set(top_deps),
-            "type": "blast_radius",
-        })
+        questions.append(
+            {
+                "id": f"{package_name}_Q1_blast",
+                "task": (
+                    f"Find all modules that would be affected if "
+                    f"`{top_mod}` is completely rewritten. "
+                    f"List ALL modules that directly or indirectly depend on it. "
+                    f"Give your final answer as a list of file paths."
+                ),
+                "ground_truth": set(top_deps),
+                "type": "blast_radius",
+            }
+        )
 
     # Q2: All deps of the deepest module
     dep_depth = {m: len(_bfs(graph, m)) for m in real_modules}
     deep_mod = max(real_modules, key=lambda m: dep_depth[m])
     deep_deps = sorted(_bfs(graph, deep_mod))
     if deep_deps:
-        questions.append({
-            "id": f"{package_name}_Q2_deps",
-            "task": (
-                f"What are ALL the direct and indirect dependencies of `{deep_mod}`? "
-                f"Trace the full dependency tree. List every module it depends on (transitively)."
-            ),
-            "ground_truth": set(deep_deps),
-            "type": "dependency_trace",
-        })
+        questions.append(
+            {
+                "id": f"{package_name}_Q2_deps",
+                "task": (
+                    f"What are ALL the direct and indirect dependencies of `{deep_mod}`? "
+                    f"Trace the full dependency tree. "
+                    f"List every module it depends on (transitively)."
+                ),
+                "ground_truth": set(deep_deps),
+                "type": "dependency_trace",
+            }
+        )
 
     # Q3: Path between distant modules
     best_path: list[str] | None = None
@@ -307,28 +318,32 @@ def generate_questions(
                 best_path, best_src, best_tgt = p, m, tgt
 
     if best_path and len(best_path) >= 3:
-        questions.append({
-            "id": f"{package_name}_Q3_path",
-            "task": (
-                f"Is there a dependency chain from `{best_src}` to `{best_tgt}`? "
-                f"If yes, trace the exact sequence of imports that connects them."
-            ),
-            "ground_truth": set(best_path),
-            "type": "path_trace",
-        })
+        questions.append(
+            {
+                "id": f"{package_name}_Q3_path",
+                "task": (
+                    f"Is there a dependency chain from `{best_src}` to `{best_tgt}`? "
+                    f"If yes, trace the exact sequence of imports that connects them."
+                ),
+                "ground_truth": set(best_path),
+                "type": "path_trace",
+            }
+        )
 
     # Q4: Leaf modules
     leaves = sorted(m for m in real_modules if not graph.get(m, set()))
     if leaves:
-        questions.append({
-            "id": f"{package_name}_Q4_leaves",
-            "task": (
-                f"Which modules in {package_name} have ZERO internal imports "
-                f"(they don't import any other module from the project)? List all of them."
-            ),
-            "ground_truth": set(leaves),
-            "type": "leaf_detection",
-        })
+        questions.append(
+            {
+                "id": f"{package_name}_Q4_leaves",
+                "task": (
+                    f"Which modules in {package_name} have ZERO internal imports "
+                    f"(they don't import any other module from the project)? List all of them."
+                ),
+                "ground_truth": set(leaves),
+                "type": "leaf_detection",
+            }
+        )
 
     # Q5: Hub module
     in_deg: dict[str, int] = defaultdict(int)
@@ -339,29 +354,34 @@ def generate_questions(
         hub = max(real_modules, key=lambda m: in_deg.get(m, 0))
         importers = sorted(rev.get(hub, set()))
         if importers:
-            questions.append({
-                "id": f"{package_name}_Q5_hub",
-                "task": (
-                    f"Which single module in {package_name} is imported by the most other modules? "
-                    f"Name it and list ALL modules that directly import it."
-                ),
-                "ground_truth": set([hub] + importers),
-                "type": "hub_identification",
-            })
+            questions.append(
+                {
+                    "id": f"{package_name}_Q5_hub",
+                    "task": (
+                        f"Which single module in {package_name} is imported "
+                        f"by the most other modules? "
+                        f"Name it and list ALL modules that directly import it."
+                    ),
+                    "ground_truth": set([hub] + importers),
+                    "type": "hub_identification",
+                }
+            )
 
     # Q6: Circular deps
     cycles = _find_cycles(graph)
     if cycles:
         cycle_mods = sorted(set(m for pair in cycles for m in pair))
-        questions.append({
-            "id": f"{package_name}_Q6_circular",
-            "task": (
-                f"Find ALL circular (mutual) import dependencies in {package_name}. "
-                f"List every pair of modules that import each other."
-            ),
-            "ground_truth": set(cycle_mods),
-            "type": "cycle_detection",
-        })
+        questions.append(
+            {
+                "id": f"{package_name}_Q6_circular",
+                "task": (
+                    f"Find ALL circular (mutual) import dependencies in {package_name}. "
+                    f"List every pair of modules that import each other."
+                ),
+                "ground_truth": set(cycle_mods),
+                "type": "cycle_detection",
+            }
+        )
 
     return questions
 
@@ -374,9 +394,10 @@ def generate_questions(
 # DOUBLE HELIX — Synrax navigation injected into read_file results
 # ---------------------------------------------------------------------------
 
+
 def _edge_label(session: Any, source_path: str, target_path: str) -> str:
     """Return 'annotated' or 'structural' label for an edge, or '' if unknown."""
-    if not hasattr(session, '_edge_sources'):
+    if not hasattr(session, "_edge_sources"):
         return ""
     return session._edge_sources.get((source_path, target_path), "")
 
@@ -388,6 +409,7 @@ def _build_nav_hint(session: Any, path: str, package_name: str) -> str:
     Includes boundary check after 2+ files visited.
     """
     from synrax.namespaces import make_module_uri
+
     uri = make_module_uri(path)
     parts: list[str] = []
 
@@ -395,6 +417,7 @@ def _build_nav_hint(session: Any, path: str, package_name: str) -> str:
 
     def _sort_by_relevance(names: list[str], ref_path: str) -> list[str]:
         ref_pkg = "/".join(ref_path.split("/")[:-1])
+
         def key(n: str) -> tuple:
             pkg = "/".join(n.split("/")[:-1])
             level = session.infer_architectural_level(n)
@@ -403,14 +426,14 @@ def _build_nav_hint(session: Any, path: str, package_name: str) -> str:
                 0 if pkg == ref_pkg else 1,
                 n,
             )
+
         return sorted(names, key=key)
 
     # Used by (who depends on this file) — capped to 3
     try:
         impact = session.query_template("impact_analysis", module=uri)
         if impact:
-            all_names = _sort_by_relevance(
-                [r.get("name", "?") for r in impact], path)
+            all_names = _sort_by_relevance([r.get("name", "?") for r in impact], path)
             tagged = []
             for n in all_names[:3]:
                 label = _edge_label(session, n, path)
@@ -425,8 +448,7 @@ def _build_nav_hint(session: Any, path: str, package_name: str) -> str:
     try:
         deps = session.query_template("deps_of", module=uri)
         if deps:
-            all_names = _sort_by_relevance(
-                [r.get("name", "?") for r in deps], path)
+            all_names = _sort_by_relevance([r.get("name", "?") for r in deps], path)
             tagged = []
             for n in all_names[:5]:
                 label = _edge_label(session, path, n)
@@ -455,7 +477,7 @@ def _build_nav_hint(session: Any, path: str, package_name: str) -> str:
         return ""
 
     # Boundary check after 2+ files visited
-    if hasattr(session, '_visited_files') and len(session._visited_files) >= 2:
+    if hasattr(session, "_visited_files") and len(session._visited_files) >= 2:
         try:
             boundary = session.get_boundary_status()
             if boundary:
@@ -550,6 +572,7 @@ class ToolSandbox:
         self._synrax_tools: dict[str, Any] = {}
         if mode == "synrax" and session_graph is not None:
             from synrax.runtime.tools import make_synrax_tools
+
             self._synrax_tools = make_synrax_tools(session_graph)
             # Reset visited files per-question so tension/boundary track fresh
             session_graph._visited_files = set()
@@ -581,7 +604,10 @@ class ToolSandbox:
                         "properties": {
                             "path": {
                                 "type": "string",
-                                "description": "Relative directory path (e.g., '' for root, 'utils/' for a subdir)",
+                                "description": (
+                                    "Relative directory path "
+                                    "(e.g., '' for root, 'utils/' for a subdir)"
+                                ),
                             },
                         },
                         "required": ["path"],
@@ -594,14 +620,18 @@ class ToolSandbox:
                     "name": "read_file",
                     "description": (
                         f"Read the contents of a Python file in the {self.package_name} package. "
-                        f"Returns the first {MAX_FILE_CHARS} characters. Use start_line/end_line to read specific sections."
+                        f"Returns the first {MAX_FILE_CHARS} characters. "
+                        f"Use start_line/end_line to read specific sections."
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "path": {
                                 "type": "string",
-                                "description": "Relative file path (e.g., 'core.py', 'utils/helpers.py')",
+                                "description": (
+                                    "Relative file path "
+                                    "(e.g., 'core.py', 'utils/helpers.py')"
+                                ),
                             },
                             "start_line": {
                                 "type": "integer",
@@ -621,8 +651,10 @@ class ToolSandbox:
                 "function": {
                     "name": "grep_search",
                     "description": (
-                        f"Search for a text pattern across all .py files in the {self.package_name} package. "
-                        f"Returns matching lines with file paths and line numbers. Case-insensitive."
+                        f"Search for a text pattern across all .py files "
+                        f"in the {self.package_name} package. "
+                        f"Returns matching lines with file paths "
+                        f"and line numbers. Case-insensitive."
                     ),
                     "parameters": {
                         "type": "object",
@@ -648,7 +680,10 @@ class ToolSandbox:
                         "properties": {
                             "pattern": {
                                 "type": "string",
-                                "description": "Glob pattern (e.g., '*.py', '**/test_*.py', 'core*')",
+                                "description": (
+                                    "Glob pattern "
+                                    "(e.g., '*.py', '**/test_*.py', 'core*')"
+                                ),
                             },
                         },
                         "required": ["pattern"],
@@ -658,113 +693,137 @@ class ToolSandbox:
         ]
 
         if self.mode == "synrax":
-            tools.extend([
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_impact",
-                        "description": (
-                            "Synrax runtime: get all files affected if a module changes. "
-                            "Uses OWL reasoning to compute transitive blast radius with provenance "
-                            "(structural from AST imports, annotated from CodeDNA, inferred from OWL)."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "module_path": {
-                                    "type": "string",
-                                    "description": f"Module file path (e.g., '{self.package_name}/core.py')",
+            tools.extend(
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_impact",
+                            "description": (
+                                "Synrax runtime: get all files affected "
+                                "if a module changes. "
+                                "Uses OWL reasoning to compute transitive "
+                                "blast radius with provenance "
+                                "(structural from AST imports, annotated "
+                                "from CodeDNA, inferred from OWL)."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "module_path": {
+                                        "type": "string",
+                                        "description": (
+                                            "Module file path "
+                                            f"(e.g., '{self.package_name}/core.py')"
+                                        ),
+                                    },
                                 },
+                                "required": ["module_path"],
                             },
-                            "required": ["module_path"],
                         },
                     },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_deps",
-                        "description": (
-                            "Synrax runtime: get all direct and transitive dependencies of a module. "
-                            "Computed from AST import analysis + OWL reasoning."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "module_path": {
-                                    "type": "string",
-                                    "description": f"Module file path (e.g., '{self.package_name}/core.py')",
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_deps",
+                            "description": (
+                                "Synrax runtime: get all direct and "
+                                "transitive dependencies of a module. "
+                                "Computed from AST import analysis "
+                                "+ OWL reasoning."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "module_path": {
+                                        "type": "string",
+                                        "description": (
+                                            "Module file path "
+                                            f"(e.g., '{self.package_name}/core.py')"
+                                        ),
+                                    },
                                 },
+                                "required": ["module_path"],
                             },
-                            "required": ["module_path"],
                         },
                     },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_graph_status",
-                        "description": (
-                            "Synrax runtime: get graph stats — triple count, files ingested, "
-                            "orphan modules, circular dependencies detected by OWL reasoning."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_graph_status",
+                            "description": (
+                                "Synrax runtime: get graph stats — triple count, files ingested, "
+                                "orphan modules, circular dependencies detected by OWL reasoning."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                            },
                         },
                     },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_rules",
-                        "description": (
-                            "Synrax runtime: get architectural rules for a module and its impact zone. "
-                            "Returns CodeDNA-annotated rules (if any) for the module and affected modules."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "module_path": {
-                                    "type": "string",
-                                    "description": f"Module file path (e.g., '{self.package_name}/core.py')",
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_rules",
+                            "description": (
+                                "Synrax runtime: get architectural rules "
+                                "for a module and its impact zone. "
+                                "Returns CodeDNA-annotated rules (if any) "
+                                "for the module and affected modules."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "module_path": {
+                                        "type": "string",
+                                        "description": (
+                                            "Module file path "
+                                            f"(e.g., '{self.package_name}/core.py')"
+                                        ),
+                                    },
                                 },
+                                "required": ["module_path"],
                             },
-                            "required": ["module_path"],
                         },
                     },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_boundary",
-                        "description": (
-                            "Synrax runtime: show exploration boundary — what percentage of the "
-                            "impact zone you've explored, remaining in-scope files, and out-of-scope "
-                            "files to skip. Call this to decide if you need to read more files."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_boundary",
+                            "description": (
+                                "Synrax runtime: show exploration "
+                                "boundary — what percentage of the "
+                                "impact zone you've explored, remaining "
+                                "in-scope files, and out-of-scope "
+                                "files to skip. Call this to decide "
+                                "if you need to read more files."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                            },
                         },
                     },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_tension",
-                        "description": (
-                            "Synrax runtime: show how much of the dependency blast zone remains "
-                            "unexplored. Returns tension ratio, high-impact unvisited files, and "
-                            "coverage advice. Call before finalizing your answer."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_tension",
+                            "description": (
+                                "Synrax runtime: show how much of the "
+                                "dependency blast zone remains "
+                                "unexplored. Returns tension ratio, "
+                                "high-impact unvisited files, and "
+                                "coverage advice. Call before "
+                                "finalizing your answer."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                            },
                         },
                     },
-                },
-            ])
+                ]
+            )
 
         return tools
 
@@ -794,9 +853,7 @@ class ToolSandbox:
                 # Route arguments: tools with module_path arg vs no-arg tools
                 if name in ("query_impact", "query_deps", "query_rules"):
                     result = fn(arguments.get("module_path", ""))
-                elif name == "query_boundary":
-                    result = fn()
-                elif name == "query_tension":
+                elif name == "query_boundary" or name == "query_tension":
                     result = fn()
                 else:
                     result = fn()
@@ -853,7 +910,9 @@ class ToolSandbox:
         self.total_output_chars += len(result)
         return result
 
-    def _read_file(self, path: str, start_line: int | None = None, end_line: int | None = None) -> str:
+    def _read_file(
+        self, path: str, start_line: int | None = None, end_line: int | None = None
+    ) -> str:
         target = self._resolve_path(path)
         if not target.is_file():
             return f"File not found: {path}"
@@ -869,7 +928,8 @@ class ToolSandbox:
         if rel in self._read_cache:
             snippet = self._read_cache[rel][:300]
             result = (
-                f"[Already read {rel}. Showing first 300 chars — use grep_search to search for specifics.]\n"
+                f"[Already read {rel}. Showing first 300 chars "
+                f"— use grep_search to search for specifics.]\n"
                 f"{snippet}..."
             )
             self.total_output_chars += len(result)
@@ -889,7 +949,10 @@ class ToolSandbox:
 
         text = header + "".join(lines)
         if len(text) > MAX_FILE_CHARS:
-            text = text[:MAX_FILE_CHARS] + f"\n... (truncated at {MAX_FILE_CHARS} chars, {total_lines} total lines)"
+            text = (
+                text[:MAX_FILE_CHARS]
+                + f"\n... (truncated at {MAX_FILE_CHARS} chars, {total_lines} total lines)"
+            )
 
         # Cache the raw content for dedup
         self._read_cache[rel] = text
@@ -897,10 +960,8 @@ class ToolSandbox:
         # Double Helix: inject [Synrax Navigation] block for .py files in synrax mode
         if self.mode == "synrax" and self._session is not None and rel.endswith(".py"):
             # Auto-ingest + mark visited
-            try:
+            with contextlib.suppress(Exception):
                 self._session.ingest_file(rel)
-            except Exception:
-                pass
             self._session.mark_visited(rel)
 
             nav = _build_nav_hint(self._session, rel, self.package_name)
@@ -991,7 +1052,9 @@ class ToolSandbox:
         unvisited = tension.get("blast_zone_unvisited", 0)
         total = tension.get("blast_zone_total", 0)
         lines = [
-            f"[Synrax Tension Alert] {round(ratio * 100)}% of blast zone unexplored ({unvisited}/{total} files)."
+            f"[Synrax Tension Alert] "
+            f"{round(ratio * 100)}% of blast zone unexplored "
+            f"({unvisited}/{total} files)."
         ]
         if high:
             lines.append(f"High-impact unvisited files: {', '.join(high)}")
@@ -1017,6 +1080,7 @@ class ToolSandbox:
 # ---------------------------------------------------------------------------
 # AGENT LOOP — LLM + tool calls
 # ---------------------------------------------------------------------------
+
 
 def call_openrouter(
     model: str,
@@ -1055,12 +1119,12 @@ def call_openrouter(
             body = e.read().decode("utf-8", errors="replace")
             last_err = f"HTTP {e.code}: {body}"
             if e.code >= 500 or e.code == 429:
-                time.sleep(3 ** attempt)
+                time.sleep(3**attempt)
                 continue
             return {"error": last_err, "latency_ms": round((time.monotonic() - t0) * 1000)}
         except (URLError, OSError, TimeoutError) as e:
             last_err = f"Network error: {e}"
-            time.sleep(3 ** attempt)
+            time.sleep(3**attempt)
             continue
     else:
         return {"error": last_err, "latency_ms": round((time.monotonic() - t0) * 1000)}
@@ -1094,9 +1158,11 @@ def run_agent_loop(
     tools_schema = sandbox.get_tools_schema()
 
     system_prompt = (
-        f"You are an expert software architect analyzing the '{sandbox.package_name}' Python package.\n"
+        "You are an expert software architect analyzing the "
+        f"'{sandbox.package_name}' Python package.\n"
         f"You have access to tools to explore the codebase. Use them to find the answer.\n"
-        f"When you have enough information, give your FINAL ANSWER listing all relevant module file paths.\n"
+        "When you have enough information, give your FINAL ANSWER "
+        "listing all relevant module file paths.\n"
         f"Be thorough: trace ALL dependencies, not just the first level.\n"
         f"Use file paths relative to the project root (e.g., '{sandbox.package_name}/core.py')."
     )
@@ -1104,30 +1170,40 @@ def run_agent_loop(
     if sandbox.mode == "synrax":
         quick_map = sandbox.get_quick_map()
         system_prompt = (
-            f"You are an expert software architect analyzing the '{sandbox.package_name}' Python package.\n"
-            f"Your task: find ALL modules related to the question. Be thorough — trace the full boundary.\n"
-            f"Use file paths relative to the project root (e.g., '{sandbox.package_name}/core.py').\n"
+            "You are an expert software architect analyzing "
+            f"the '{sandbox.package_name}' Python package.\n"
+            "Your task: find ALL modules related to the question. "
+            "Be thorough — trace the full boundary.\n"
+            "Use file paths relative to the project root "
+            f"(e.g., '{sandbox.package_name}/core.py').\n"
             "\n"
             "## Synrax Runtime — Automatic Dependency Analysis (Double Helix)\n"
             "\n"
             "This codebase is instrumented with Synrax ArchGraph. The dependency graph has been\n"
             "pre-built from all CodeDNA annotations and Python import analysis.\n"
             "\n"
-            "**IMPORTANT**: Every `read_file()` result for a .py file starts with a `[Synrax Navigation]`\n"
+            "**IMPORTANT**: Every `read_file()` result for a .py file "
+            "starts with a `[Synrax Navigation]`\n"
             "block at the TOP — read it FIRST before the file content. This block shows:\n"
             "- **Used by**: files that depend on this file, with relevance labels:\n"
-            "  - `(annotated)` = explicitly marked by the developer as a consumer — HIGH relevance\n"
-            "  - `(structural)` = connected via import statement — verify relevance before reading\n"
+            "  - `(annotated)` = explicitly marked by the developer "
+            "as a consumer — HIGH relevance\n"
+            "  - `(structural)` = connected via import statement "
+            "— verify relevance before reading\n"
             "- **Depends on**: what this file imports (also labeled)\n"
             "- **Rules**: architectural constraints you must respect\n"
-            "- **[Boundary]**: (appears after 2+ files read) shows exploration progress and out-of-scope files\n"
+            "- **[Boundary]**: (appears after 2+ files read) shows "
+            "exploration progress and out-of-scope files\n"
             "\n"
-            "You may also receive `[Synrax Tension Alert]` messages mid-conversation when the blast zone\n"
-            "has significant unexplored files. These alerts name specific high-impact files you should read.\n"
+            "You may also receive `[Synrax Tension Alert]` messages "
+            "mid-conversation when the blast zone\n"
+            "has significant unexplored files. These alerts name "
+            "specific high-impact files you should read.\n"
             "\n"
             "### Tools\n"
             "- **Filesystem**: list_directory, read_file, grep_search, find_files\n"
-            "- **Graph**: query_impact, query_deps, query_rules, query_graph_status, query_boundary, query_tension\n"
+            "- **Graph**: query_impact, query_deps, query_rules, "
+            "query_graph_status, query_boundary, query_tension\n"
             "\n"
             "### Strategy\n"
             "1. Start with query_graph_status to see the graph overview\n"
@@ -1137,7 +1213,8 @@ def run_agent_loop(
             "5. SKIP files listed as out-of-scope in the [Boundary] section\n"
             "6. When you receive a [Synrax Tension Alert], read the high-impact files it names\n"
             "7. Call query_tension() before finalizing — target >80% of blast zone explored\n"
-            "8. The graph tools include transitive closure — you don't need to manually trace imports\n"
+            "8. The graph tools include transitive closure "
+            "— you don't need to manually trace imports\n"
         )
         if quick_map:
             system_prompt += f"\n{quick_map}\n"
@@ -1197,22 +1274,26 @@ def run_agent_loop(
 
             tool_result = sandbox.execute(fn_name, fn_args)
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.get("id", ""),
-                "content": tool_result,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "content": tool_result,
+                }
+            )
 
             # Print progress indicator
-            print(f".", end="", flush=True)
+            print(".", end="", flush=True)
 
         # Double Helix: inject tension alert after tool calls if due
         alert = sandbox.check_tension_alert()
         if alert:
-            messages.append({
-                "role": "user",
-                "content": alert,
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": alert,
+                }
+            )
 
     # Exhausted turns — use last message content as answer
     last_content = ""
@@ -1237,6 +1318,7 @@ def run_agent_loop(
 # EVALUATION — F1, Precision, Recall, Pass@1
 # ---------------------------------------------------------------------------
 
+
 def extract_modules_from_response(response: str, package_name: str) -> set[str]:
     """Extract module file paths from an LLM response.
 
@@ -1251,16 +1333,16 @@ def extract_modules_from_response(response: str, package_name: str) -> set[str]:
         return found
 
     # Pattern 1: explicit file paths (package/module.py)
-    for m in re.finditer(rf'{re.escape(package_name)}/[\w/]+\.py', response):
+    for m in re.finditer(rf"{re.escape(package_name)}/[\w/]+\.py", response):
         found.add(m.group(0))
 
     # Pattern 2: dotted module names (click.core → click/core.py)
-    for m in re.finditer(rf'{re.escape(package_name)}\.[\w.]+', response):
+    for m in re.finditer(rf"{re.escape(package_name)}\.[\w.]+", response):
         path = m.group(0).replace(".", "/") + ".py"
         found.add(path)
 
     # Pattern 3: bare filenames mentioned (core.py) — map to package/core.py
-    for m in re.finditer(r'\b(\w+\.py)\b', response):
+    for m in re.finditer(r"\b(\w+\.py)\b", response):
         fname = m.group(1)
         if fname == "__init__.py":
             continue
@@ -1268,7 +1350,7 @@ def extract_modules_from_response(response: str, package_name: str) -> set[str]:
         found.add(candidate)
 
     # Pattern 4: backtick-quoted paths
-    for m in re.finditer(r'`([^`]+\.py)`', response):
+    for m in re.finditer(r"`([^`]+\.py)`", response):
         path = m.group(1).replace("\\", "/")
         if not path.startswith(package_name + "/"):
             path = package_name + "/" + path.split("/")[-1] if "/" not in path else path
@@ -1282,13 +1364,14 @@ def evaluate(predicted: set[str], ground_truth: set[str], package_name: str) -> 
 
     Normalizes paths for comparison (strips package prefix mismatches).
     """
+
     def normalize(s: set[str]) -> set[str]:
         """Normalize to consistent format: package/module.py"""
         normed: set[str] = set()
         for p in s:
             p = p.replace("\\", "/").strip("`").strip()
             # Remove leading ./ or src/
-            p = re.sub(r'^(src/|\./)','', p)
+            p = re.sub(r"^(src/|\./)", "", p)
             if not p.endswith(".py"):
                 p += ".py"
             if "/" not in p:
@@ -1325,6 +1408,7 @@ def evaluate(predicted: set[str], ground_truth: set[str], package_name: str) -> 
 # BENCHMARK RUNNER
 # ---------------------------------------------------------------------------
 
+
 def run_benchmark(
     repo_name: str,
     model: str,
@@ -1349,7 +1433,9 @@ def run_benchmark(
 
         for mode in ("raw", "synrax"):
             sandbox = ToolSandbox(
-                project_root, package_dir, package_name,
+                project_root,
+                package_dir,
+                package_name,
                 mode=mode,
                 session_graph=session_graph if mode == "synrax" else None,
             )
@@ -1406,13 +1492,23 @@ def run_benchmark(
 # DISPLAY
 # ---------------------------------------------------------------------------
 
+
 def print_summary(repo_name: str, model: str, results: list[dict]) -> dict[str, Any]:
     """Print SWE-bench style summary table."""
     print(f"\n{'═' * 78}")
     print(f"  {repo_name} | {model}")
     print(f"{'═' * 78}")
-    print(f"  {'Task':<22s} │ {'Mode':<6s} │ {'F1':>5s} {'P':>5s} {'R':>5s} {'P@1':>4s} │ {'Calls':>5s} {'Reads':>5s} {'Tok':>7s}")
-    print(f"  {'─'*22}─┼─{'─'*6}─┼─{'─'*5}─{'─'*5}─{'─'*5}─{'─'*4}─┼─{'─'*5}─{'─'*5}─{'─'*7}")
+    print(
+        f"  {'Task':<22s} │ {'Mode':<6s} │ "
+        f"{'F1':>5s} {'P':>5s} {'R':>5s} {'P@1':>4s} │ "
+        f"{'Calls':>5s} {'Reads':>5s} {'Tok':>7s}"
+    )
+    sep = (
+        f"  {'─' * 22}─┼─{'─' * 6}─┼─"
+        f"{'─' * 5}─{'─' * 5}─{'─' * 5}─{'─' * 4}─┼─"
+        f"{'─' * 5}─{'─' * 5}─{'─' * 7}"
+    )
+    print(sep)
 
     for r in results:
         for mode in ("raw", "synrax"):
@@ -1427,9 +1523,11 @@ def print_summary(repo_name: str, model: str, results: list[dict]) -> dict[str, 
 
             id_label = r["id"] if mode == "raw" else ""
             print(
-                f"  {id_label:<22s} │ {mode:<6s} │ {f1:>4.0%} {p:>4.0%} {rc:>4.0%}  {tag:>2s}  │ {calls:>5d} {reads:>5d} {tok:>7,}"
+                f"  {id_label:<22s} │ {mode:<6s} │ "
+                f"{f1:>4.0%} {p:>4.0%} {rc:>4.0%}  {tag:>2s}  │ "
+                f"{calls:>5d} {reads:>5d} {tok:>7,}"
             )
-        print(f"  {'─'*22}─┼─{'─'*6}─┼─{'─'*5}─{'─'*5}─{'─'*5}─{'─'*4}─┼─{'─'*5}─{'─'*5}─{'─'*7}")
+        print(sep)
 
     # Aggregates
     raw_f1s = [r.get("raw_f1", 0) for r in results]
@@ -1448,13 +1546,29 @@ def print_summary(repo_name: str, model: str, results: list[dict]) -> dict[str, 
     avg_sx_f1 = sum(sx_f1s) / n if n else 0
 
     print(f"\n  AGGREGATE ({n} tasks):")
-    print(f"  {'':>22s} │ {'':>6s} │ {'F1':>5s} {'P@1':>9s} │ {'Calls':>5s} {'Reads':>5s} {'Tokens':>7s}")
-    print(f"  {'':>22s} │ {'raw':<6s} │ {avg_raw_f1:>4.0%} {raw_p1:>4d}/{n:<4d} │ {raw_calls:>5d} {raw_reads:>5d} {raw_tok:>7,}")
-    print(f"  {'':>22s} │ {'synrax':<6s} │ {avg_sx_f1:>4.0%} {sx_p1:>4d}/{n:<4d} │ {sx_calls:>5d} {sx_reads:>5d} {sx_tok:>7,}")
+    print(
+        f"  {'':>22s} │ {'':>6s} │ "
+        f"{'F1':>5s} {'P@1':>9s} │ "
+        f"{'Calls':>5s} {'Reads':>5s} {'Tokens':>7s}"
+    )
+    print(
+        f"  {'':>22s} │ {'raw':<6s} │ "
+        f"{avg_raw_f1:>4.0%} {raw_p1:>4d}/{n:<4d} │ "
+        f"{raw_calls:>5d} {raw_reads:>5d} {raw_tok:>7,}"
+    )
+    print(
+        f"  {'':>22s} │ {'synrax':<6s} │ "
+        f"{avg_sx_f1:>4.0%} {sx_p1:>4d}/{n:<4d} │ "
+        f"{sx_calls:>5d} {sx_reads:>5d} {sx_tok:>7,}"
+    )
 
     delta_f1 = avg_sx_f1 - avg_raw_f1
     delta_calls = sx_calls - raw_calls
-    print(f"\n  Δ Synrax vs Raw:  F1 {delta_f1:+.0%}  |  Pass@1 {sx_p1-raw_p1:+d}  |  Tool calls {delta_calls:+d}")
+    print(
+        f"\n  Δ Synrax vs Raw:  F1 {delta_f1:+.0%}  |  "
+        f"Pass@1 {sx_p1 - raw_p1:+d}  |  "
+        f"Tool calls {delta_calls:+d}"
+    )
 
     return {
         "repo": repo_name,
@@ -1478,6 +1592,7 @@ def print_summary(repo_name: str, model: str, results: list[dict]) -> dict[str, 
 # DRY RUN
 # ---------------------------------------------------------------------------
 
+
 def run_dry_run(
     repo_name: str,
     package_name: str,
@@ -1495,9 +1610,16 @@ def run_dry_run(
         n_raw = session_graph.raw_triple_count
         n_files = len(session_graph._ingested_files)
         print(f"  Synrax SessionGraph: {n_raw} raw triples, {n_files} files ingested")
-    print(f"  Agent tools (raw):    list_directory, read_file, grep_search, find_files")
-    print(f"  Agent tools (synrax): + query_impact, query_deps, query_rules, query_graph_status, query_boundary, query_tension")
-    print(f"  Double Helix:         [Synrax Navigation] in read_file, tension alerts, read cache, quick map")
+    print("  Agent tools (raw):    list_directory, read_file, grep_search, find_files")
+    print(
+        "  Agent tools (synrax): + query_impact, query_deps, "
+        "query_rules, query_graph_status, query_boundary, "
+        "query_tension"
+    )
+    print(
+        "  Double Helix:         [Synrax Navigation] in read_file, "
+        "tension alerts, read cache, quick map"
+    )
     print()
 
     for q in questions:
@@ -1514,6 +1636,7 @@ def run_dry_run(
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     global MAX_TURNS
@@ -1571,6 +1694,7 @@ def main() -> None:
         # Build real Synrax SessionGraph (root = project_root so paths include package prefix)
         print("  Building Synrax SessionGraph (OWL-RL) ...", end=" ", flush=True)
         from synrax.runtime.session_graph import SessionGraph
+
         sg = SessionGraph(project_root)
         # Ingest only the package dir files (not tests, docs, examples)
         for py_file in sorted(package_dir.rglob("*.py")):
@@ -1596,9 +1720,15 @@ def main() -> None:
         for model in models:
             print(f"\n  ═══ {repo_name} × {model} ═══")
             results = run_benchmark(
-                repo_name, model, api_key,
-                project_root, package_dir, package_name,
-                graph, questions, session_graph=sg,
+                repo_name,
+                model,
+                api_key,
+                project_root,
+                package_dir,
+                package_name,
+                graph,
+                questions,
+                session_graph=sg,
             )
             summary = print_summary(repo_name, model, results)
             all_summaries.append(summary)
@@ -1611,11 +1741,29 @@ def main() -> None:
         print(f"\n{'═' * 78}")
         print("  OVERALL SUMMARY")
         print(f"{'═' * 78}")
-        print(f"  {'Repo + Model':<45s} │ {'F1':>5s} {'P@1':>7s} │ {'Calls':>5s} {'Reads':>5s} {'Tokens':>8s}")
+        print(
+            f"  {'Repo + Model':<45s} │ "
+            f"{'F1':>5s} {'P@1':>7s} │ "
+            f"{'Calls':>5s} {'Reads':>5s} {'Tokens':>8s}"
+        )
         for s in all_summaries:
             label = f"{s['repo']} | {s['model'].split('/')[-1]}"
-            raw_lbl = f"  {label:<45s} │ {s['raw_avg_f1']:>4.0%} {s['raw_pass_at_1']}/{s['n_tasks']:<4d} │ {s['raw_total_calls']:>5d} {s['raw_total_reads']:>5d} {s['raw_total_tokens']:>8,}"
-            sx_lbl = f"  {'  + synrax':<45s} │ {s['synrax_avg_f1']:>4.0%} {s['synrax_pass_at_1']}/{s['n_tasks']:<4d} │ {s['synrax_total_calls']:>5d} {s['synrax_total_reads']:>5d} {s['synrax_total_tokens']:>8,}"
+            raw_lbl = (
+                f"  {label:<45s} │ "
+                f"{s['raw_avg_f1']:>4.0%} "
+                f"{s['raw_pass_at_1']}/{s['n_tasks']:<4d} │ "
+                f"{s['raw_total_calls']:>5d} "
+                f"{s['raw_total_reads']:>5d} "
+                f"{s['raw_total_tokens']:>8,}"
+            )
+            sx_lbl = (
+                f"  {'  + synrax':<45s} │ "
+                f"{s['synrax_avg_f1']:>4.0%} "
+                f"{s['synrax_pass_at_1']}/{s['n_tasks']:<4d} │ "
+                f"{s['synrax_total_calls']:>5d} "
+                f"{s['synrax_total_reads']:>5d} "
+                f"{s['synrax_total_tokens']:>8,}"
+            )
             print(raw_lbl)
             print(sx_lbl)
 

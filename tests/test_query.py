@@ -20,5 +20,6 @@ def test_load_template_impact_analysis():
 
 def test_load_template_not_found():
     import pytest
+
     with pytest.raises(FileNotFoundError, match="not_a_real_template"):
         load_template("not_a_real_template")

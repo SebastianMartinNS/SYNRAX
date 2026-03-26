@@ -18,10 +18,9 @@ from rdflib.namespace import XSD
 from synrax.extract.import_analyzer import analyze_imports
 from synrax.extract.module_parser import parse_module
 from synrax.namespaces import ARCH, RDF, bind_namespaces, make_module_uri, uri_to_path
+from synrax.query.templates_loader import load_template
 from synrax.schema.loader import load_schema
 from synrax.schema.reasoner import reason
-from synrax.query.templates_loader import load_template
-
 
 # Keep backward-compatible alias
 _make_module_uri = make_module_uri
@@ -82,11 +81,7 @@ class SessionGraph:
         Returns:
             Number of new triples added (0 if file was already ingested or has no annotations).
         """
-        if isinstance(path, str):
-            # Normalize: accept both relative and absolute paths
-            abs_path = (self._root / path).resolve()
-        else:
-            abs_path = path.resolve()
+        abs_path = (self._root / path).resolve() if isinstance(path, str) else path.resolve()
 
         if not abs_path.is_file() or abs_path.suffix != ".py":
             return 0
@@ -145,7 +140,9 @@ class SessionGraph:
         module_uri = ARCH[_make_module_uri(rel_path)]
         if (module_uri, RDF.type, ARCH.Module) not in self._raw_graph:
             self._raw_graph.add((module_uri, RDF.type, ARCH.Module))
-            self._raw_graph.add((module_uri, ARCH.moduleName, Literal(rel_path, datatype=XSD.string)))
+            self._raw_graph.add(
+                (module_uri, ARCH.moduleName, Literal(rel_path, datatype=XSD.string))
+            )
 
         after = len(self._raw_graph)
         added = after - before
@@ -200,7 +197,7 @@ class SessionGraph:
 
         results = []
         for row in g.query(sparql):
-            results.append({str(var): str(val) for var, val in zip(row.labels, row)})
+            results.append({str(var): str(val) for var, val in zip(row.labels, row, strict=False)})
         return results
 
     def query_template(self, name: str, **params: str) -> list[dict[str, str]]:
@@ -220,7 +217,9 @@ class SessionGraph:
         """Pre-ingest all .py files under root. Returns total triples added."""
         total = 0
         for py_file in self._root.rglob("*.py"):
-            if any(part.startswith((".", "__")) for part in py_file.relative_to(self._root).parts[:-1]):
+            if any(
+                part.startswith((".", "__")) for part in py_file.relative_to(self._root).parts[:-1]
+            ):
                 continue
             total += self.ingest_file(py_file)
         return total
@@ -251,10 +250,7 @@ class SessionGraph:
 
     def mark_visited(self, path: str) -> None:
         """Record that the agent read this file (for boundary analysis)."""
-        if isinstance(path, str):
-            abs_path = (self._root / path).resolve()
-        else:
-            abs_path = path.resolve()
+        abs_path = (self._root / path).resolve() if isinstance(path, str) else path.resolve()
         try:
             rel = str(abs_path.relative_to(self._root)).replace("\\", "/")
         except ValueError:
@@ -296,7 +292,9 @@ class SessionGraph:
         # Exclude __init__.py from scope counting — they are routing hubs,
         # not real targets.  Keep them in remaining list for completeness
         # but don't let them inflate the denominator / deflate explored_pct.
-        _is_init = lambda p: p.endswith("__init__.py")
+        def _is_init(p):
+            return p.endswith("__init__.py")
+
         meaningful_scope = {p for p in in_scope if not _is_init(p)}
         meaningful_visited = {p for p in self._visited_files if not _is_init(p)}
 
@@ -326,8 +324,7 @@ class SessionGraph:
         """
         if not self._visited_files:
             # Pre-ingested but nothing visited — maximum tension
-            meaningful = {f for f in self._ingested_files
-                         if not f.endswith("__init__.py")}
+            meaningful = {f for f in self._ingested_files if not f.endswith("__init__.py")}
             return {
                 "blast_zone_total": len(meaningful),
                 "blast_zone_unvisited": len(meaningful),
@@ -350,7 +347,9 @@ class SessionGraph:
         explored_pct = boundary.get("explored_pct", 0)
 
         # Build in_scope the same way as get_boundary_status
-        _is_init = lambda p: p.endswith("__init__.py")
+        def _is_init(p):
+            return p.endswith("__init__.py")
+
         in_scope: set[str] = set()
         for vf in self._visited_files:
             uri = _make_module_uri(vf)

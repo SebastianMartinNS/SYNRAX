@@ -3,27 +3,26 @@
 Esegui con:  py demo/demo_value.py
 """
 
-from pathlib import Path
-import json
 import sys
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from synrax.extract.pipeline import extract_codebase
+from synrax.namespaces import ARCH, RDF
+from synrax.query.engine import run_query
 from synrax.schema.reasoner import reason
 from synrax.schema.validator import validate
-from synrax.query.engine import run_query
-from synrax.namespaces import ARCH, RDF
 
 DEMO_ROOT = Path(__file__).parent / "codebase"
 DEMO_TTL = Path(__file__).parent / "output.ttl"
 
 
 def section(title: str) -> None:
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"  {title}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
 
 def main():
@@ -91,12 +90,12 @@ def main():
 
     print(f"  Triple prima del reasoning:  {raw_count}")
     print(f"  Triple dopo il reasoning:    {reasoned_count}")
-    print(f"  Triple INFERITI:             {inferred} (+{inferred*100//raw_count}%)")
+    print(f"  Triple INFERITI:             {inferred} (+{inferred * 100 // raw_count}%)")
     print()
 
     # Mostra dipendenze transitive
     print("  DIPENDENZE TRANSITIVE scoperte dal reasoning:")
-    for s, p, o in sorted(graph.triples((None, ARCH.dependsOn, None))):
+    for s, _p, o in sorted(graph.triples((None, ARCH.dependsOn, None))):
         s_name = str(s).split("/")[-1]
         o_name = str(o).split("/")[-1]
         # Check if this was in the original graph
@@ -107,7 +106,7 @@ def main():
     print()
     print("  PROPRIETÀ INVERSE (usedBy) inferite:")
     used_by_count = 0
-    for s, p, o in sorted(graph.triples((None, ARCH.usedBy, None))):
+    for s, _p, o in sorted(graph.triples((None, ARCH.usedBy, None))):
         s_name = str(s).split("/")[-1]
         o_name = str(o).split("/")[-1]
         print(f"    {s_name} usedBy {o_name}")
@@ -162,7 +161,7 @@ def main():
 
     # Find the db/connection module URI
     db_module = None
-    for s, p, o in graph.triples((None, ARCH.moduleName, None)):
+    for s, _p, o in graph.triples((None, ARCH.moduleName, None)):
         if "connection" in str(o):
             db_module = str(s).split("/")[-1]
             break

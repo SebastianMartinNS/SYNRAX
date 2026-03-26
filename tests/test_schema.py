@@ -9,7 +9,7 @@ from synrax.schema.reasoner import reason
 
 def test_load_schema_has_classes():
     g = load_schema()
-    classes = set(g.subjects(RDF.type, ARCH.Module.__class__))
+    set(g.subjects(RDF.type, ARCH.Module.__class__))
     # Check that key classes are defined
     assert (ARCH.Module, RDF.type, None) in g or len(g) > 0
 

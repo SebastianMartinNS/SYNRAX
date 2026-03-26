@@ -13,8 +13,17 @@ from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 ARCH = Namespace("http://archgraph.example.org/")
 
 # Convenience re-exports
-__all__ = ["ARCH", "OWL", "RDF", "RDFS", "SH", "XSD", "bind_namespaces",
-           "make_module_uri", "uri_to_path"]
+__all__ = [
+    "ARCH",
+    "OWL",
+    "RDF",
+    "RDFS",
+    "SH",
+    "XSD",
+    "bind_namespaces",
+    "make_module_uri",
+    "uri_to_path",
+]
 
 
 def bind_namespaces(graph: Graph) -> Graph:
@@ -37,10 +46,7 @@ def make_module_uri(module_path: str) -> str:
     E.g. 'forms/order_form.py' -> 'forms::order_form'
          'forms/order/form.py' -> 'forms::order::form'
     """
-    return (module_path
-            .replace("\\", "/")
-            .replace(".py", "")
-            .replace("/", _SEPARATOR))
+    return module_path.replace("\\", "/").replace(".py", "").replace("/", _SEPARATOR)
 
 
 def uri_to_path(uri_fragment: str) -> str:

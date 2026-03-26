@@ -5,7 +5,7 @@ used_by: views/checkout.py -> checkout_view [cascade] | notifications/email.py -
 rules:   Totals in cents, never float. Must call models.inventory.check_stock() before confirming.
          Discount codes capped at 50% of total — enforce BEFORE creating order.
 agent:   deepseek-v3 | deepseek | 2026-03-10 | Initial order form.
-         gemini-2.5-flash | google | 2026-03-15 | Added discount validation, missed stock check integration.
+         gemini-2.5-flash | google | 2026-03-15 | Discount validation, missed stock check.
 """
 
 

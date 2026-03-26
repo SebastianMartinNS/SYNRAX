@@ -21,7 +21,7 @@ def project_tree(tmp_path: Path) -> Path:
         '"""db/connection.py - Database pool.\n\n'
         "exports: get_connection() -> Connection\n"
         "used_by: models/order.py -> create_order\n"
-        'rules:   Always use parameterized queries.\n'
+        "rules:   Always use parameterized queries.\n"
         '"""\n\n'
         "def get_connection(): pass\n",
         **enc,
@@ -33,7 +33,7 @@ def project_tree(tmp_path: Path) -> Path:
         '"""models/order.py - Order logic.\n\n'
         "exports: create_order(data) -> Order\n"
         "used_by: forms/order_form.py -> validate_order [cascade]\n"
-        'rules:   States: draft -> confirmed -> paid.\n'
+        "rules:   States: draft -> confirmed -> paid.\n"
         '"""\n\n'
         "from db.connection import get_connection\n\n"
         "def create_order(data): pass\n",
@@ -46,7 +46,7 @@ def project_tree(tmp_path: Path) -> Path:
         '"""forms/order_form.py - Order validation.\n\n'
         "exports: validate_order(data) -> bool\n"
         "used_by: views/checkout.py -> checkout_view\n"
-        'rules:   Totals in cents, never float.\n'
+        "rules:   Totals in cents, never float.\n"
         '"""\n\n'
         "from models.order import create_order\n\n"
         "def validate_order(data): pass\n",
@@ -58,7 +58,7 @@ def project_tree(tmp_path: Path) -> Path:
     (tmp_path / "views" / "checkout.py").write_text(
         '"""views/checkout.py - Checkout handler.\n\n'
         "exports: checkout_view(request) -> HttpResponse\n"
-        'rules:   Never call models directly.\n'
+        "rules:   Never call models directly.\n"
         '"""\n\n'
         "from forms.order_form import validate_order\n\n"
         "def checkout_view(request): pass\n",
@@ -84,13 +84,17 @@ class TestQueryImpact:
 
     def test_impact_on_leaf_returns_no_deps(self, tools):
         result = tools["query_impact"]("views/checkout.py")
-        assert "No files found" in result or "0 files" in result.lower() or "affected" in result.lower()
+        assert (
+            "No files found" in result
+            or "0 files" in result.lower()
+            or "affected" in result.lower()
+        )
 
     def test_impact_auto_ingests(self, project_tree: Path):
         sg = SessionGraph(project_tree)
         t = make_synrax_tools(sg)
         # Don't ingest anything beforehand
-        result = t["query_impact"]("db/connection.py")
+        t["query_impact"]("db/connection.py")
         assert sg.file_count >= 1  # auto-ingested
 
 
@@ -101,7 +105,11 @@ class TestQueryDeps:
 
     def test_root_module_has_no_deps(self, tools):
         result = tools["query_deps"]("db/connection.py")
-        assert "no known dependencies" in result.lower() or "0 dependencies" in result.lower() or "depends on" in result.lower()
+        assert (
+            "no known dependencies" in result.lower()
+            or "0 dependencies" in result.lower()
+            or "depends on" in result.lower()
+        )
 
 
 class TestQueryRules:
@@ -144,6 +152,7 @@ class TestEmptyGraph:
 
 # ── EXP-2: Boundary query tool ────────────────────────────────────────
 
+
 class TestQueryBoundary:
     """EXP-2: Verify query_boundary tool returns exploration status."""
 
@@ -170,6 +179,7 @@ class TestQueryBoundary:
 
 
 # ── Tension query tool ────────────────────────────────────────────────
+
 
 class TestQueryTension:
     """Verify query_tension tool returns tension status."""

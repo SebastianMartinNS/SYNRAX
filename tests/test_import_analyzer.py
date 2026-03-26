@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from rdflib import Literal
-from rdflib.namespace import XSD
 
 from synrax.extract.import_analyzer import (
     analyze_imports,
@@ -136,8 +134,7 @@ class TestAnalyzeImports:
         """Same module imported twice yields only one entry."""
         dup_file = project_tree / "dup_test.py"
         dup_file.write_text(
-            "from db.connection import get_connection\n"
-            "from db.connection import execute_raw\n",
+            "from db.connection import get_connection\nfrom db.connection import execute_raw\n",
             encoding="utf-8",
         )
         results = analyze_imports(dup_file, project_tree)
@@ -182,12 +179,10 @@ class TestBuildImportGraph:
         graph = build_import_graph(project_tree)
         # Check that dependsOn edges exist
         deps = set()
-        for s, p, o in graph.triples((None, ARCH.dependsOn, None)):
+        for s, _p, o in graph.triples((None, ARCH.dependsOn, None)):
             # Get module names
-            s_name = None
-            o_name = None
             for _, _, sn in graph.triples((s, ARCH.moduleName, None)):
-                s_name = str(sn)
+                str(sn)
             # o might not have moduleName if it's an import target not parsed
             deps.add((str(s), str(o)))
 

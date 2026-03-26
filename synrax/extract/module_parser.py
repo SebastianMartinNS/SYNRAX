@@ -61,10 +61,12 @@ def _parse_exports(exports_str: str) -> list[dict[str, str]]:
             # Match: func_name(args) -> return_type  or  func_name() → type
             m = re.match(r"(\w+)\(([^)]*)\)\s*(?:->|→)\s*(.+)", sub)
             if m:
-                results.append({
-                    "name": m.group(1),
-                    "signature": f"({m.group(2)}) -> {m.group(3).strip()}",
-                })
+                results.append(
+                    {
+                        "name": m.group(1),
+                        "signature": f"({m.group(2)}) -> {m.group(3).strip()}",
+                    }
+                )
             elif sub:
                 name = sub.split("(")[0].strip()
                 if name.isidentifier():
@@ -118,12 +120,14 @@ def _parse_agent(agent_str: str) -> list[dict[str, str]]:
             continue
         parts = [p.strip() for p in line.split("|")]
         if len(parts) >= 4:
-            results.append({
-                "model": parts[0],
-                "provider": parts[1],
-                "date": parts[2],
-                "narrative": parts[3],
-            })
+            results.append(
+                {
+                    "model": parts[0],
+                    "provider": parts[1],
+                    "date": parts[2],
+                    "narrative": parts[3],
+                }
+            )
     return results
 
 
@@ -203,6 +207,7 @@ def parse_module(path: Path, project: str = "", root: Path | None = None) -> Gra
     import_results: list[dict[str, str]] = []
     if root is not None:
         from synrax.extract.import_analyzer import analyze_imports
+
         import_results = analyze_imports(path, root)
         for imp in import_results:
             imp_uri = ARCH[_make_module_uri(imp["module"])]
@@ -224,7 +229,9 @@ def parse_module(path: Path, project: str = "", root: Path | None = None) -> Gra
 
     # Agent sessions
     for session in _parse_agent(fields.get("agent", "")):
-        session_id = f"session_{session['date'].replace('-', '_')}_{session['model'].replace('-', '_').replace('.', '_')}"
+        date_part = session["date"].replace("-", "_")
+        model_part = session["model"].replace("-", "_").replace(".", "_")
+        session_id = f"session_{date_part}_{model_part}"
         session_uri = ARCH[session_id]
         agent_uri = ARCH[f"agent_{session['model'].replace('-', '_').replace('.', '_')}"]
 
@@ -251,9 +258,7 @@ def parse_module(path: Path, project: str = "", root: Path | None = None) -> Gra
             rules_text = func_fields.get("rules", "")
             if not rules_text:
                 # Also check for "Rules:" in freeform docstring
-                rules_match = re.search(
-                    r"Rules?:\s*(.+?)(?=\n\s*\n|\Z)", func_docstring, re.DOTALL
-                )
+                rules_match = re.search(r"Rules?:\s*(.+?)(?=\n\s*\n|\Z)", func_docstring, re.DOTALL)
                 if rules_match:
                     rules_text = rules_match.group(1)
 

@@ -11,14 +11,13 @@ agent:   claude-opus-4 | anthropic | 2026-03-22 | Initial SHACL validator.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from pyshacl import validate as shacl_validate
 from rdflib import Graph
 
-from pyshacl import validate as shacl_validate
-
-from synrax.namespaces import ARCH, SH
+from synrax.namespaces import SH
 from synrax.schema.loader import load_shapes
 
 
@@ -55,7 +54,7 @@ def validate(graph: Graph, shapes_extensions: list[Path] | None = None) -> dict:
             violations.append(record)
 
     # Also parse from standard SHACL result triples
-    for s, p, o in results_graph.triples((None, SH.result, None)):
+    for _s, _p, o in results_graph.triples((None, SH.result, None)):
         record = _extract_result(results_graph, o)
         severity = record.get("severity", "")
         if record not in violations and record not in warnings:
@@ -71,7 +70,7 @@ def validate(graph: Graph, shapes_extensions: list[Path] | None = None) -> dict:
         "statistics": {
             "violations_count": len(violations),
             "warnings_count": len(warnings),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "validator_time_ms": elapsed_ms,
         },
     }

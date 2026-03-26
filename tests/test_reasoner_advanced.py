@@ -3,7 +3,7 @@
 from rdflib import Graph, Literal
 from rdflib.namespace import XSD
 
-from synrax.namespaces import ARCH, OWL, RDF, RDFS, bind_namespaces
+from synrax.namespaces import ARCH, OWL, RDF, bind_namespaces
 from synrax.schema.reasoner import reason
 
 

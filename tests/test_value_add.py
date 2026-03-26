@@ -13,8 +13,6 @@ from pathlib import Path
 from rdflib import Graph, Literal
 from rdflib.namespace import XSD
 
-from synrax.extract.manifest import parse_manifest
-from synrax.extract.module_parser import parse_module
 from synrax.extract.pipeline import extract_codebase
 from synrax.namespaces import ARCH, RDF, bind_namespaces
 from synrax.schema.reasoner import reason
@@ -46,16 +44,16 @@ class TestEndToEndWorkflow:
         payments_dir.mkdir()
         (payments_dir / "charge.py").write_text(
             '"""payments/charge.py \u2014 Process credit card charges.\n\n'
-            'exports: charge_card(amount: int) -> bool\n'
-            'used_by: api/checkout.py -> process_payment [cascade]\n'
-            'rules:   Amounts in cents, never float. Must validate card before charging.\n'
-            'agent:   test-agent | test | 2026-01-01 | Initial charge logic.\n'
+            "exports: charge_card(amount: int) -> bool\n"
+            "used_by: api/checkout.py -> process_payment [cascade]\n"
+            "rules:   Amounts in cents, never float. Must validate card before charging.\n"
+            "agent:   test-agent | test | 2026-01-01 | Initial charge logic.\n"
             '"""\n\n'
-            'def charge_card(amount: int) -> bool:\n'
+            "def charge_card(amount: int) -> bool:\n"
             '    """Charge a credit card.\n\n'
-            '    Rules: Must validate amount > 0 before processing.\n'
+            "    Rules: Must validate amount > 0 before processing.\n"
             '    """\n'
-            '    return amount > 0\n',
+            "    return amount > 0\n",
             encoding="utf-8",
         )
 

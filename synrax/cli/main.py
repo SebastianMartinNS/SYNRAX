@@ -31,12 +31,27 @@ def cli() -> None:
 @click.argument("root", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option("-o", "--output", type=click.Path(path_type=Path), default="codebase.ttl")
 @click.option("--reason/--no-reason", "apply_reasoning", default=True, help="Run OWL reasoning.")
-@click.option("--schema", "extra_schemas", multiple=True, type=click.Path(exists=True, path_type=Path),
-              help="Extra OWL/TTL schema files to merge.")
-@click.option("--shapes", "extra_shapes", multiple=True, type=click.Path(exists=True, path_type=Path),
-              help="Extra SHACL shapes files to merge.")
-def export(root: Path, output: Path, apply_reasoning: bool,
-           extra_schemas: tuple[Path, ...], extra_shapes: tuple[Path, ...]) -> None:
+@click.option(
+    "--schema",
+    "extra_schemas",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Extra OWL/TTL schema files to merge.",
+)
+@click.option(
+    "--shapes",
+    "extra_shapes",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Extra SHACL shapes files to merge.",
+)
+def export(
+    root: Path,
+    output: Path,
+    apply_reasoning: bool,
+    extra_schemas: tuple[Path, ...],
+    extra_shapes: tuple[Path, ...],
+) -> None:
     """Extract CodeDNA annotations from a codebase into RDF/Turtle."""
     try:
         graph = extract_codebase(root)
@@ -51,8 +66,9 @@ def export(root: Path, output: Path, apply_reasoning: bool,
 
     if all_schemas or all_shapes:
         ext_count = len(all_schemas) + len(all_shapes)
-        click.echo(f"Loading {ext_count} extension(s): "
-                    f"{len(all_schemas)} schema, {len(all_shapes)} shapes")
+        click.echo(
+            f"Loading {ext_count} extension(s): {len(all_schemas)} schema, {len(all_shapes)} shapes"
+        )
 
     if apply_reasoning:
         graph = reason(graph, schema_extensions=all_schemas or None)
@@ -64,8 +80,13 @@ def export(root: Path, output: Path, apply_reasoning: bool,
 @cli.command()
 @click.argument("turtle_file", type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), default=None)
-@click.option("--shapes", "extra_shapes", multiple=True, type=click.Path(exists=True, path_type=Path),
-              help="Extra SHACL shapes files to merge.")
+@click.option(
+    "--shapes",
+    "extra_shapes",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Extra SHACL shapes files to merge.",
+)
 def validate_cmd(turtle_file: Path, output: Path | None, extra_shapes: tuple[Path, ...]) -> None:
     """Validate an RDF graph against ArchGraph SHACL shapes."""
     from rdflib import Graph
@@ -117,8 +138,7 @@ def serve(root: Path, pre_ingest: bool) -> None:
     if pre_ingest:
         session.ingest_all()
         click.echo(
-            f"Pre-ingested {session.file_count} files, "
-            f"{session.raw_triple_count} triples",
+            f"Pre-ingested {session.file_count} files, {session.raw_triple_count} triples",
             err=True,
         )
 
@@ -128,10 +148,10 @@ def serve(root: Path, pre_ingest: bool) -> None:
         return json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result})
 
     def _jsonrpc_error(req_id, code, message):
-        return json.dumps({"jsonrpc": "2.0", "id": req_id,
-                           "error": {"code": code, "message": message}})
+        return json.dumps(
+            {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+        )
 
-    import sys as _sys
     stdin = click.get_text_stream("stdin")
     for line in stdin:
         line = line.strip()

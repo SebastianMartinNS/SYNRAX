@@ -2,7 +2,8 @@
 
 exports: reason(graph, schema_extensions) -> Graph
 used_by: synrax/cli/main.py → export command | synrax/schema/__init__.py
-rules:   Uses owlrl for OWL-RL entailment (transitive closure, inverse properties, subclass propagation).
+rules:   Uses owlrl for OWL-RL entailment (transitive closure,
+         inverse properties, subclass propagation).
          Merges schema.owl axioms into the graph before reasoning.
          Accepts optional extension schemas for project-specific ontologies.
 agent:   claude-opus-4 | anthropic | 2026-03-22 | Initial reasoner integration.
@@ -13,9 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rdflib import Graph
-
 import owlrl
+from rdflib import Graph
 
 from synrax.schema.loader import load_schema
 

@@ -39,6 +39,6 @@ def run_query(name: str, turtle_file: Path, **params: str) -> list[dict]:
 
     results = []
     for row in g.query(query_str):
-        results.append({str(var): str(val) for var, val in zip(row.labels, row)})
+        results.append({str(var): str(val) for var, val in zip(row.labels, row, strict=False)})
 
     return results

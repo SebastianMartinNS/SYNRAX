@@ -30,7 +30,11 @@ def sample_turtle(tmp_path: Path) -> Path:
     api_mod = ARCH["api_routes"]
     reports_mod = ARCH["reports_monthly"]
 
-    for mod, name in [(billing_mod, "billing_invoice"), (api_mod, "api_routes"), (reports_mod, "reports_monthly")]:
+    for mod, name in [
+        (billing_mod, "billing_invoice"),
+        (api_mod, "api_routes"),
+        (reports_mod, "reports_monthly"),
+    ]:
         g.add((mod, RDF.type, ARCH.Module))
         g.add((mod, ARCH.moduleName, Literal(name, datatype=XSD.string)))
         g.add((mod, ARCH.purpose, Literal(f"Purpose of {name}", datatype=XSD.string)))

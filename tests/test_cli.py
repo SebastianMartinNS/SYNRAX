@@ -77,9 +77,10 @@ def test_validate_writes_output_file(tmp_path: Path):
     runner = CliRunner()
     runner.invoke(cli, ["export", str(FIXTURES), "-o", str(ttl), "--no-reason"])
 
-    result = runner.invoke(cli, ["validate", str(ttl), "-o", str(report)])
+    runner.invoke(cli, ["validate", str(ttl), "-o", str(report)])
     assert report.exists()
     import json
+
     data = json.loads(report.read_text())
     assert "conforms" in data
     assert "statistics" in data
@@ -95,6 +96,7 @@ def test_query_command(tmp_path: Path):
     assert result.exit_code == 0
     # Output should be valid JSON (list)
     import json
+
     data = json.loads(result.output)
     assert isinstance(data, list)
 
@@ -105,10 +107,16 @@ def test_query_with_param(tmp_path: Path):
     runner = CliRunner()
     runner.invoke(cli, ["export", str(FIXTURES), "-o", str(ttl), "--reason"])
 
-    result = runner.invoke(cli, [
-        "query", "impact_analysis", str(ttl),
-        "-p", "module=billing::invoice_service",
-    ])
+    result = runner.invoke(
+        cli,
+        [
+            "query",
+            "impact_analysis",
+            str(ttl),
+            "-p",
+            "module=billing::invoice_service",
+        ],
+    )
     assert result.exit_code == 0
 
 
