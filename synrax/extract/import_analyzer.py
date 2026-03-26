@@ -15,15 +15,14 @@ from pathlib import Path
 from rdflib import Graph, Literal
 from rdflib.namespace import XSD
 
-from synrax.namespaces import ARCH, RDF, bind_namespaces
+from synrax.namespaces import ARCH, RDF, bind_namespaces, make_module_uri
 
 # stdlib top-level module names (frozen for Python 3.11+)
 _STDLIB_TOP = frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else frozenset()
 
 
-def _make_module_uri(module_path: str) -> str:
-    """Create a URI-safe identifier from a module file path."""
-    return module_path.replace("/", "_").replace("\\", "_").replace(".py", "").replace("-", "_")
+# Keep backward-compatible alias
+_make_module_uri = make_module_uri
 
 
 def resolve_import_to_file(import_path: str, root: Path, source_file: Path | None = None) -> Path | None:

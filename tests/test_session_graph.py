@@ -111,11 +111,11 @@ class TestIncrementalIngestion:
 
         # Ingest connection only — limited visibility
         sg.ingest_file("db/connection.py")
-        results_1 = sg.query_template("impact_analysis", module="db_connection")
+        results_1 = sg.query_template("impact_analysis", module="db::connection")
 
         # Ingest order — now order depends on connection
         sg.ingest_file("models/order.py")
-        results_2 = sg.query_template("impact_analysis", module="db_connection")
+        results_2 = sg.query_template("impact_analysis", module="db::connection")
 
         # More ingested files = potentially more impact results
         assert len(results_2) >= len(results_1)
@@ -162,7 +162,7 @@ class TestQueryIntegration:
         sg.ingest_file("db/connection.py")
         sg.ingest_file("models/order.py")
 
-        results = sg.query_template("impact_analysis", module="db_connection")
+        results = sg.query_template("impact_analysis", module="db::connection")
         # models/order.py depends on db/connection.py (via import)
         affected_names = {r.get("name", "") for r in results}
         assert any("models/order" in n for n in affected_names)
@@ -383,3 +383,156 @@ class TestComputeTension:
         t = sg.compute_tension()
         assert t["tension_ratio"] == 0.0
         assert t["blast_zone_total"] == 0
+
+
+# ── Step 3.1: URI collision tests ─────────────────────────────────────
+
+class TestURICollision:
+    """Verify that underscores in filenames don't collide with directory separators."""
+
+    @pytest.fixture()
+    def collision_tree(self, tmp_path: Path) -> Path:
+        """Create a tree where 'my_model.py' and 'my/model.py' coexist."""
+        enc = {"encoding": "utf-8"}
+
+        # my_model.py (underscore in filename)
+        (tmp_path / "my_model.py").write_text(
+            '"""my_model.py \u2014 Flat module.\n\n'
+            'exports: flat_func() -> None\n'
+            'rules:   Flat module rule.\n'
+            '"""\n\n'
+            "def flat_func(): pass\n",
+            **enc,
+        )
+
+        # my/model.py (directory + filename)
+        (tmp_path / "my").mkdir()
+        (tmp_path / "my" / "__init__.py").write_text("", **enc)
+        (tmp_path / "my" / "model.py").write_text(
+            '"""my/model.py \u2014 Nested module.\n\n'
+            'exports: nested_func() -> None\n'
+            'rules:   Nested module rule.\n'
+            '"""\n\n'
+            "def nested_func(): pass\n",
+            **enc,
+        )
+
+        return tmp_path
+
+    def test_distinct_uris(self, collision_tree: Path):
+        """my_model.py and my/model.py must produce different URIs."""
+        from synrax.namespaces import make_module_uri
+        uri_flat = make_module_uri("my_model.py")
+        uri_nested = make_module_uri("my/model.py")
+        assert uri_flat != uri_nested
+        assert uri_flat == "my_model"       # underscore preserved
+        assert uri_nested == "my::model"    # directory uses ::
+
+    def test_distinct_ingestion(self, collision_tree: Path):
+        """Both files ingest without overwriting each other."""
+        sg = SessionGraph(collision_tree)
+        added1 = sg.ingest_file("my_model.py")
+        added2 = sg.ingest_file("my/model.py")
+        assert added1 > 0
+        assert added2 > 0
+        assert sg.file_count == 2
+
+    def test_distinct_query_results(self, collision_tree: Path):
+        """Both modules appear as separate nodes in SPARQL queries."""
+        sg = SessionGraph(collision_tree)
+        sg.ingest_file("my_model.py")
+        sg.ingest_file("my/model.py")
+
+        results = sg.query(
+            "PREFIX arch: <http://archgraph.example.org/> "
+            "SELECT ?name WHERE { ?m a arch:Module ; arch:moduleName ?name . }"
+        )
+        names = {r.get("name", "") for r in results}
+        assert "my_model.py" in names
+        assert "my/model.py" in names
+
+    def test_roundtrip_uri_to_path(self):
+        """URI \u2192 path roundtrip preserves underscores vs directories."""
+        from synrax.namespaces import make_module_uri, uri_to_path
+        assert uri_to_path(make_module_uri("my_model.py")) == "my_model.py"
+        assert uri_to_path(make_module_uri("my/model.py")) == "my/model.py"
+
+    def test_edge_tracking_with_collision(self, collision_tree: Path):
+        """Edge sources track correct paths even with similar names."""
+        # Add a cross-import from my/model.py \u2192 my_model.py
+        (collision_tree / "my" / "model.py").write_text(
+            '"""my/model.py \u2014 Nested module.\n\n'
+            'exports: nested_func() -> None\n'
+            'rules:   Nested module rule.\n'
+            '"""\n\n'
+            "from my_model import flat_func\n\n"
+            "def nested_func(): pass\n",
+            encoding="utf-8",
+        )
+        sg = SessionGraph(collision_tree)
+        sg.ingest_file("my_model.py")
+        sg.ingest_file("my/model.py")
+        # my/model.py depends on my_model.py (via import)
+        source = sg.get_edge_source("my/model.py", "my_model.py")
+        assert source == "structural"
+
+
+# ── Step 3.2: Edge provenance serialization tests ─────────────────────
+
+class TestProvenanceSerialization:
+    """Verify serialize_provenance() and load_provenance() round-trip correctly."""
+
+    def test_serialize_provenance_returns_dict(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("db/connection.py")
+        sg.ingest_file("models/order.py")
+        data = sg.serialize_provenance()
+        assert "edges" in data
+        assert isinstance(data["edges"], list)
+        assert len(data["edges"]) > 0
+
+    def test_serialize_provenance_edge_fields(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("db/connection.py")
+        sg.ingest_file("models/order.py")
+        data = sg.serialize_provenance()
+        for edge in data["edges"]:
+            assert "from" in edge
+            assert "to" in edge
+            assert "source" in edge
+            assert edge["source"] in {"structural", "annotated", "inferred"}
+
+    def test_load_provenance_restores(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("db/connection.py")
+        sg.ingest_file("models/order.py")
+        data = sg.serialize_provenance()
+
+        # Create a fresh session and load provenance
+        sg2 = SessionGraph(project_tree)
+        assert len(sg2._edge_sources) == 0
+        sg2.load_provenance(data)
+        assert len(sg2._edge_sources) == len(sg._edge_sources)
+        for key, val in sg._edge_sources.items():
+            assert sg2._edge_sources[key] == val
+
+    def test_inferred_edges_in_serialization(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.ingest_file("db/connection.py")
+        sg.ingest_file("models/order.py")
+        sg.ingest_file("forms/order_form.py")
+        sg.ensure_reasoned()
+        data = sg.serialize_provenance()
+        sources = {e["source"] for e in data["edges"]}
+        # Should have at least structural and annotated
+        assert "structural" in sources or "annotated" in sources
+
+    def test_empty_provenance(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        data = sg.serialize_provenance()
+        assert data == {"edges": []}
+
+    def test_load_empty_provenance(self, project_tree: Path):
+        sg = SessionGraph(project_tree)
+        sg.load_provenance({"edges": []})
+        assert len(sg._edge_sources) == 0

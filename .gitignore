@@ -18,5 +18,7 @@ _tmp*
 synrax/extract/\#*
 benchmark_openrouter.py
 benchmark_results.json
+benchmark_agent_results.json
+.bench_cache/
 .pytest_cache/
 .ruff_cache/

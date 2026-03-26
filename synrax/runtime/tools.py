@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from synrax.namespaces import make_module_uri, uri_to_path
 from synrax.runtime.session_graph import SessionGraph
 
 
-def _module_uri_fragment(path: str) -> str:
-    """Convert a file path like 'db/connection.py' to URI fragment 'db_connection'."""
-    return path.replace("/", "_").replace("\\", "_").replace(".py", "").replace("-", "_")
+# Keep backward-compatible alias
+_module_uri_fragment = make_module_uri
 
 
 def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
@@ -67,12 +67,12 @@ def make_synrax_tools(session: SessionGraph) -> dict[str, Callable[..., str]]:
             name = r.get("name", "?")
             label = "direct" if name in direct_deps else "transitive"
             # EXP-5: Add provenance label (structural/annotated/inferred)
-            source = session.get_edge_source(name, uri.replace("_", "/") + ".py")
+            source = session.get_edge_source(name, uri_to_path(uri))
             if source == "unknown":
-                # Try reverse lookup with URI-based path
+                # Try reverse lookup
                 source = session.get_edge_source(
                     name,
-                    session._uri_to_path(uri),
+                    uri_to_path(uri),
                 )
             lines.append(f"  - {name} ({label}, {source})")
 

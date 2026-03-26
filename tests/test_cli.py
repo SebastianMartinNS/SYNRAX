@@ -107,7 +107,7 @@ def test_query_with_param(tmp_path: Path):
 
     result = runner.invoke(cli, [
         "query", "impact_analysis", str(ttl),
-        "-p", "module=billing_invoice_service",
+        "-p", "module=billing::invoice_service",
     ])
     assert result.exit_code == 0
 
@@ -117,4 +117,4 @@ def test_cli_version():
     runner = CliRunner()
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "version" in result.output.lower() or "0.1" in result.output
+    assert "version" in result.output.lower() or "0.2" in result.output

@@ -198,12 +198,12 @@ are loaded via the **extensions** mechanism — see [Schema Extensions](#schema-
 ## Testing
 
 ```bash
-pytest                    # 174 tests, ~11s
+pytest                    # 185 tests, ~11s
 pytest -x --tb=short      # fail-fast
 python benchmarks.py      # reproduce all benchmark numbers
 ```
 
-174 tests across 17 files:
+185 tests across 17 files:
 
 | File | Tests | Scope |
 |---|--:|---|
@@ -220,7 +220,7 @@ python benchmarks.py      # reproduce all benchmark numbers
 | `test_reasoner_advanced.py` | 6 | OWL-RL: transitivity, inverse, cascade→usedBy |
 | `test_runtime_tools.py` | 18 | Agent tool functions: impact, deps, rules, status, boundary, tension |
 | `test_schema.py` | 5 | Schema/shape loading, basic reasoning |
-| `test_session_graph.py` | 39 | Incremental ingestion, lazy reasoning, boundary tracking, node roles, tension |
+| `test_session_graph.py` | 50 | Incremental ingestion, lazy reasoning, boundary tracking, node roles, tension, provenance |
 | `test_sparql_templates.py` | 10 | All 9 SPARQL templates functional tests |
 | `test_validator.py` | 11 | SHACL: conforms/violations/warnings/statistics, package regression |
 | `test_value_add.py` | 11 | E2E pipeline + paper-driven value-add |
@@ -233,7 +233,7 @@ python benchmarks.py      # reproduce all benchmark numbers
 | OWL reasoning | owlrl ≥6.0 | OWL-RL entailment (pure Python) |
 | SHACL validation | pyshacl ≥0.25 | Shape validation + reports |
 | CLI | Click ≥8.1 | `codedna-export` entry point |
-| Testing | pytest ≥8.0 | 174 tests |
+| Testing | pytest ≥8.0 | 185 tests |
 | YAML parsing | PyYAML ≥6.0 | .codedna manifest + extension discovery |
 
 ## Schema Extensions
@@ -320,6 +320,54 @@ print(tools["query_impact"]("db/connection.py"))
 print(tools["query_graph_status"]())
 print(tools["query_boundary"]())
 ```
+
+## Agent Benchmark (SWE-bench Style)
+
+`benchmark_agent.py` runs a controlled experiment: an LLM agent navigates real open-source
+codebases (click, rich, httpx) via tool calls, answering dependency analysis questions.
+Each question is run twice — **raw** (filesystem tools only) vs **synrax** (filesystem + knowledge graph).
+
+```bash
+# Dry run — show tasks + ground truth, no API calls
+py benchmark_agent.py --dry-run
+
+# Single repo, default model
+OPENROUTER_API_KEY=... py benchmark_agent.py --repo click
+
+# Full matrix — all repos × all models
+OPENROUTER_API_KEY=... py benchmark_agent.py --all-repos --all-models
+```
+
+### Double Helix Integration
+
+In synrax mode, the benchmark implements the **Double Helix** pattern from the reference
+SWE-bench runner — CodeDNA Layer 1 annotations and Synrax Layer 2 graph analysis
+interleave seamlessly:
+
+- **`[Synrax Navigation]` blocks** injected at the top of every `read_file()` result:
+  Used-by (capped 3), Depends-on (capped 5), Rules, and Boundary status — each edge
+  labeled with provenance (`annotated` / `structural` / `inferred`)
+- **`[Synrax Tension Alert]`** injected mid-conversation every 3 file reads when
+  blast-zone coverage is < 80%, naming high-impact unvisited files
+- **Quick Map** in the system prompt showing the most-connected modules
+- **Read cache** deduplicates repeated file reads (returns 300-char snippet)
+- **All 6 Synrax tools** exposed: `query_impact`, `query_deps`, `query_rules`,
+  `query_graph_status`, `query_boundary`, `query_tension`
+- **`mark_visited()`** called on every file read — boundary and tension update live
+
+### Metrics
+
+| Metric | Description |
+|---|---|
+| F1 | Harmonic mean of precision and recall |
+| Precision | Correct modules / predicted modules |
+| Recall | Correct modules / ground-truth modules |
+| Pass@1 | 1 if F1 ≥ 0.5, else 0 |
+| Tool calls | Total tool invocations per question |
+| Files read | Unique files read by the agent |
+| Tokens | Total prompt + completion tokens consumed |
+
+Ground truth is computed from AST dependency graphs — not hand-written keywords.
 
 ## Upstream
 

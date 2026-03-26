@@ -192,8 +192,8 @@ class TestBuildImportGraph:
             deps.add((str(s), str(o)))
 
         # At minimum: models/order depends on db/connection
-        order_uri = str(ARCH["models_order"])
-        conn_uri = str(ARCH["db_connection"])
+        order_uri = str(ARCH["models::order"])
+        conn_uri = str(ARCH["db::connection"])
         assert (order_uri, conn_uri) in deps
 
     def test_graph_has_module_types(self, project_tree: Path):

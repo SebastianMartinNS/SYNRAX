@@ -17,14 +17,14 @@ from rdflib.namespace import XSD
 
 from synrax.extract.import_analyzer import analyze_imports
 from synrax.extract.module_parser import parse_module
-from synrax.namespaces import ARCH, RDF, bind_namespaces
+from synrax.namespaces import ARCH, RDF, bind_namespaces, make_module_uri, uri_to_path
 from synrax.schema.loader import load_schema
 from synrax.schema.reasoner import reason
 from synrax.query.templates_loader import load_template
 
 
-def _make_module_uri(module_path: str) -> str:
-    return module_path.replace("/", "_").replace("\\", "_").replace(".py", "").replace("-", "_")
+# Keep backward-compatible alias
+_make_module_uri = make_module_uri
 
 
 class SessionGraph:
@@ -104,7 +104,7 @@ class SessionGraph:
         # Snapshot edges before CodeDNA parsing to detect annotated edges
         edges_before = set(self._raw_graph.triples((None, ARCH.dependsOn, None)))
 
-        # Parse CodeDNA annotations (adds annotated dependsOn + AST import edges)
+        # Layer 1: Parse CodeDNA annotations (exports, used_by, rules, agent)
         try:
             module_graph = parse_module(abs_path, project="", root=self._root)
             for triple in module_graph:
@@ -112,24 +112,36 @@ class SessionGraph:
         except Exception:
             pass
 
-        # Track edge sources: new edges from parse_module include both types
-        # We distinguish by direction: used_by annotations create reverse edges
-        # (consumer dependsOn this_module), AST imports create forward edges
-        # (this_module dependsOn imported_module)
-        edges_after = set(self._raw_graph.triples((None, ARCH.dependsOn, None)))
-        new_edges = edges_after - edges_before
-        for s, _p, o in new_edges:
-            # Resolve module names from URIs
+        # Track annotated edges from parse_module
+        edges_after_codedna = set(self._raw_graph.triples((None, ARCH.dependsOn, None)))
+        codedna_edges = edges_after_codedna - edges_before
+        uri_frag = _make_module_uri(rel_path)
+        for s, _p, o in codedna_edges:
             s_name = str(s).replace("http://archgraph.example.org/", "")
             o_name = str(o).replace("http://archgraph.example.org/", "")
-            # Forward edge (this→import) = structural; reverse edge (consumer→this) = annotated
-            uri_frag = _make_module_uri(rel_path)
             if s_name == uri_frag:
                 self._edge_sources[(rel_path, self._uri_to_path(o_name))] = "structural"
             else:
                 self._edge_sources[(self._uri_to_path(s_name), rel_path)] = "annotated"
 
-        # Ensure the module node exists even without annotations (for import edges)
+        # Layer 2: AST import analysis (always runs, even without CodeDNA annotations)
+        # This is Synrax's structural analysis — independent of CodeDNA.
+        try:
+            import_results = analyze_imports(abs_path, self._root)
+            module_uri = ARCH[uri_frag]
+            for imp in import_results:
+                imp_uri = ARCH[_make_module_uri(imp["module"])]
+                # Skip if already added by parse_module (Graph has set semantics, but track source)
+                if (module_uri, ARCH.dependsOn, imp_uri) not in self._raw_graph:
+                    self._raw_graph.add((module_uri, ARCH.dependsOn, imp_uri))
+                # Always mark as structural (AST ground truth)
+                imp_path = imp["module"]
+                if (rel_path, imp_path) not in self._edge_sources:
+                    self._edge_sources[(rel_path, imp_path)] = "structural"
+        except Exception:
+            pass
+
+        # Ensure the module node exists even without annotations
         module_uri = ARCH[_make_module_uri(rel_path)]
         if (module_uri, RDF.type, ARCH.Module) not in self._raw_graph:
             self._raw_graph.add((module_uri, RDF.type, ARCH.Module))
@@ -229,13 +241,11 @@ class SessionGraph:
 
     @staticmethod
     def _uri_to_path(uri_fragment: str) -> str:
-        """Convert URI fragment like 'db_connection' back to approximate path 'db/connection.py'.
+        """Convert URI fragment back to approximate file path.
 
-        This is a best-effort reverse of _make_module_uri. Since underscores in
-        original paths are ambiguous, we return the fragment as-is with .py suffix.
+        Delegates to the centralized uri_to_path in namespaces.py.
         """
-        # Replace underscores with "/" to approximate original path
-        return uri_fragment.replace("_", "/") + ".py"
+        return uri_to_path(uri_fragment)
 
     # ── EXP-2: Visited file tracking ───────────────────────────────────
 
@@ -458,3 +468,21 @@ class SessionGraph:
         if "tests" in parts or filename.startswith("test_"):
             return "test"
         return "feature"
+
+    # ── Edge provenance serialization ──────────────────────────────────
+
+    def serialize_provenance(self) -> dict[str, list[dict[str, str]]]:
+        """Serialize edge provenance data for persistence.
+
+        Returns dict with keys: 'edges' (list of {from, to, source}).
+        """
+        edges = []
+        for (from_path, to_path), source in sorted(self._edge_sources.items()):
+            edges.append({"from": from_path, "to": to_path, "source": source})
+        return {"edges": edges}
+
+    def load_provenance(self, data: dict[str, list[dict[str, str]]]) -> None:
+        """Load edge provenance data from a serialized dict."""
+        for edge in data.get("edges", []):
+            key = (edge["from"], edge["to"])
+            self._edge_sources[key] = edge["source"]

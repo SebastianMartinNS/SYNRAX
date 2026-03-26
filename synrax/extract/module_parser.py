@@ -18,14 +18,13 @@ from pathlib import Path
 from rdflib import Graph, Literal
 from rdflib.namespace import XSD
 
-from synrax.namespaces import ARCH, RDF, RDFS, bind_namespaces
+from synrax.namespaces import ARCH, RDF, RDFS, bind_namespaces, make_module_uri
 
 log = logging.getLogger(__name__)
 
 
-def _make_module_uri(module_path: str) -> str:
-    """Create a URI-safe identifier from a module file path."""
-    return module_path.replace("/", "_").replace("\\", "_").replace(".py", "").replace("-", "_")
+# Keep backward-compatible alias
+_make_module_uri = make_module_uri
 
 
 def _parse_codedna_fields(docstring: str) -> dict[str, str]:
